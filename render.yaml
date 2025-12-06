@@ -5,7 +5,7 @@ services:
     env: python
     region: oregon
     plan: free
-    branch: master
+    branch: main
     rootDir: backend
 
     # Optimized build for PyTorch CPU-only
