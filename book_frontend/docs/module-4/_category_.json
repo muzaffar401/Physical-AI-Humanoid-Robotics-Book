@@ -1,0 +1,10 @@
+{
+  "label": "Module 4: Vision-Language-Action (VLA)",
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "description": "Learn to build embodied AI systems that combine speech recognition, language models, and computer vision to enable robots to understand and execute natural language commands. This module covers Whisper for voice input, GPT-4/Claude for cognitive planning, CLIP for visual grounding, and ROS 2 integration for complete VLA pipelines."
+  },
+  "collapsed": false,
+  "collapsible": true
+}

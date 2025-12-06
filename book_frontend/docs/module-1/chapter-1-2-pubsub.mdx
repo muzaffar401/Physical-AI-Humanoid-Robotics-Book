@@ -1,0 +1,812 @@
+---
+id: chapter-1-2-pubsub
+title: "Chapter 1.2: Your First ROS 2 Node - Publishers & Subscribers"
+sidebar_label: "1.2 Publishers & Subscribers"
+sidebar_position: 2
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs defaultValue="content" groupId="chapter-view">
+
+<TabItem value="content" label="Content" default>
+
+# Chapter 1.2: Your First ROS 2 Node - Publishers & Subscribers
+
+## From Observer to Creator
+
+In Chapter 1.1, you observed ROS 2 in action with TurtleSim—watching nodes communicate through topics. Now it's time to **create your own nodes** and build the foundation for every ROS 2 application: the **publish-subscribe pattern**.
+
+By the end of this chapter, you'll write Python code that makes robots talk to each other, stream sensor data at 10 Hz, and understand how decoupled communication enables complex robotics systems.
+
+---
+
+## Learning Objectives
+
+By the end of this chapter, you will:
+
+- **Remember**: Define publisher, subscriber, callback function, rclpy, and message type
+- **Understand**: Explain pub/sub pattern benefits (decoupling, scalability, asynchronous communication)
+- **Apply**: Create Python publisher node that sends String messages at 1 Hz rate
+- **Apply**: Create Python subscriber node that receives and prints messages via callback
+- **Analyze**: Use `ros2 topic echo`, `ros2 topic info`, and `rqt_graph` to debug communication issues
+
+**Estimated Time**: 2.5 hours
+
+---
+
+## Prerequisites
+
+- **Chapter 1.1 complete** (ROS 2 Humble installed, TurtleSim working)
+- **Basic Python knowledge** (functions, classes, imports)
+- **Text editor or IDE** (VS Code, PyCharm, or nano/vim)
+
+---
+
+## What You'll Build
+
+By the end of this chapter, you'll have:
+
+✅ **Talker node**: Publishes "Hello ROS 2" messages every second
+✅ **Listener node**: Subscribes and prints received messages
+✅ **ROS 2 package** with proper structure (package.xml, setup.py)
+✅ **Debugging skills**: Using ros2 CLI tools and rqt_graph
+
+---
+
+## The Publish-Subscribe Pattern
+
+### Real-World Analogy: Newspaper Delivery
+
+Imagine a newspaper company:
+
+- **Publisher** (newspaper company): Prints newspapers daily, doesn't know who reads them
+- **Topic** (delivery route): `/local_news` or `/sports_section`
+- **Subscribers** (readers): Anyone can subscribe to the route and receive newspapers
+- **Decoupling**: Publisher doesn't care how many subscribers exist; subscribers don't care who publishes
+
+**Key insight**: The publisher and subscribers **never communicate directly**. They only know about the topic.
+
+### Why Pub/Sub for Robotics?
+
+**Problem with direct connections**:
+```python
+# ❌ Tightly coupled (bad)
+camera = Camera()
+detector = ObjectDetector()
+detector.process_image(camera.get_image())  # detector depends on camera
+controller = RobotController()
+controller.move(detector.get_objects())     # controller depends on detector
+```
+
+If you want to add a second object detector or replace the camera, you must modify multiple files.
+
+**Solution with pub/sub**:
+```python
+# ✅ Decoupled (good)
+camera_node.publish('/camera/image', image)         # camera doesn't know who reads
+detector_node.subscribe('/camera/image', callback)  # detector doesn't know who publishes
+detector_node.publish('/detections', objects)
+controller_node.subscribe('/detections', callback)
+```
+
+**Benefits**:
+1. **Decoupling**: Nodes don't depend on each other's implementation
+2. **Scalability**: Add 10 subscribers to `/camera/image` without changing camera code
+3. **Asynchronous**: Publisher doesn't wait for subscribers to process messages
+4. **Many-to-many**: Multiple publishers can send to same topic, multiple subscribers can receive
+
+---
+
+## ROS 2 Communication Concepts
+
+### Node
+
+A **node** is an executable process that performs computation. Examples:
+- `camera_driver_node`: Publishes images from a USB camera
+- `object_detector_node`: Subscribes to images, publishes detections
+- `motor_controller_node`: Subscribes to velocity commands, controls motors
+
+**One node, one responsibility** (like microservices).
+
+### Topic
+
+A **topic** is a named channel for messages. Naming convention: `/namespace/category/name`
+
+Examples:
+- `/turtle1/cmd_vel`: Velocity commands for turtle 1
+- `/camera/image_raw`: Unprocessed camera images
+- `/robot/joint_states`: Current angles of robot joints
+
+### Publisher
+
+A **publisher** sends messages to a topic at a configurable rate.
+
+**Analogy**: A speaker broadcasting on a radio frequency—anyone tuned to that frequency receives the signal.
+
+### Subscriber
+
+A **subscriber** receives messages from a topic via a **callback function**.
+
+**Callback**: A function that executes automatically when a message arrives (event-driven programming).
+
+### Message Type
+
+Every topic has a **message type** defining its data structure. Common types:
+
+- `std_msgs/String`: Simple text messages
+- `std_msgs/Int32`: 32-bit integer
+- `geometry_msgs/Twist`: Velocity commands (linear + angular)
+- `sensor_msgs/Image`: Camera images
+- `sensor_msgs/LaserScan`: LiDAR scan data
+
+**Type safety**: Publishers and subscribers must use the **same message type** for a topic.
+
+---
+
+## Your First Publisher: The Talker
+
+Let's create a node that publishes "Hello ROS 2" messages every second.
+
+### Step 1: Create Workspace and Package
+
+ROS 2 uses **workspaces** to organize code. Create one:
+
+```bash
+# Create workspace directory
+mkdir -p ~/ros2_ws/src
+cd ~/ros2_ws/src
+
+# Create package
+ros2 pkg create --build-type ament_python py_pubsub
+```
+
+**What this does**:
+- Creates `py_pubsub` package with Python build system
+- Generates `package.xml` (metadata), `setup.py` (installation), `resource/`, `test/`
+
+Navigate to your package:
+
+```bash
+cd py_pubsub
+```
+
+### Step 2: Write the Talker Node
+
+Create `py_pubsub/talker.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
+
+class TalkerNode(Node):
+    def __init__(self):
+        # Initialize the node with name 'talker'
+        super().__init__('talker')
+
+        # Create publisher: topic='/chatter', message_type=String, queue_size=10
+        self.publisher_ = self.create_publisher(String, '/chatter', 10)
+
+        # Create timer: call self.timer_callback every 1.0 seconds
+        self.timer_ = self.create_timer(1.0, self.timer_callback)
+
+        self.counter_ = 0  # Message counter
+        self.get_logger().info('Talker node started')
+
+    def timer_callback(self):
+        # Create message
+        msg = String()
+        msg.data = f'Hello ROS 2! Message #{self.counter_}'
+
+        # Publish message
+        self.publisher_.publish(msg)
+        self.get_logger().info(f'Publishing: "{msg.data}"')
+
+        self.counter_ += 1
+
+
+def main(args=None):
+    rclpy.init(args=args)           # Initialize ROS 2 Python client library
+    node = TalkerNode()              # Create node instance
+    rclpy.spin(node)                # Keep node running until Ctrl+C
+    node.destroy_node()              # Clean up
+    rclpy.shutdown()                 # Shutdown ROS 2
+
+
+if __name__ == '__main__':
+    main()
+```
+
+**Code walkthrough**:
+
+1. **Import rclpy**: ROS 2 Python client library
+2. **Import Node**: Base class for all ROS 2 nodes
+3. **Import String**: Message type from `std_msgs`
+4. **TalkerNode class**: Inherits from `Node`
+   - `__init__`: Initialize node, create publisher and timer
+   - `timer_callback`: Called every 1 second, publishes message
+5. **main()**: Entry point—initialize ROS 2, run node, cleanup
+
+**Key concepts**:
+- **`create_publisher(type, topic, queue_size)`**: Creates publisher
+  - `queue_size=10`: Buffer up to 10 messages if network is slow
+- **`create_timer(period, callback)`**: Calls callback every `period` seconds
+- **`rclpy.spin(node)`**: Enters event loop (processes timers, callbacks)
+
+### Step 3: Configure Package Files
+
+Edit `setup.py` to register the node:
+
+```python
+from setuptools import setup
+
+package_name = 'py_pubsub'
+
+setup(
+    name=package_name,
+    version='0.0.1',
+    packages=[package_name],
+    data_files=[
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+        ('share/' + package_name, ['package.xml']),
+    ],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='Your Name',
+    maintainer_email='you@email.com',
+    description='Publisher/Subscriber tutorial',
+    license='Apache License 2.0',
+    tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+            'talker = py_pubsub.talker:main',  # Add this line
+        ],
+    },
+)
+```
+
+**Key change**: `entry_points` registers `talker` as an executable that calls `main()` in `talker.py`.
+
+Edit `package.xml` to add dependencies:
+
+```xml
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>py_pubsub</name>
+  <version>0.0.1</version>
+  <description>Publisher/Subscriber tutorial</description>
+  <maintainer email="you@email.com">Your Name</maintainer>
+  <license>Apache License 2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
+```
+
+**Key additions**:
+- `<depend>rclpy</depend>`: ROS 2 Python library
+- `<depend>std_msgs</depend>`: Standard message types
+
+### Step 4: Build and Run
+
+```bash
+# Return to workspace root
+cd ~/ros2_ws
+
+# Build package
+colcon build --packages-select py_pubsub
+
+# Source workspace (adds package to PATH)
+source install/setup.bash
+
+# Run talker node
+ros2 run py_pubsub talker
+```
+
+**Expected output**:
+```
+[INFO] [talker]: Talker node started
+[INFO] [talker]: Publishing: "Hello ROS 2! Message #0"
+[INFO] [talker]: Publishing: "Hello ROS 2! Message #1"
+[INFO] [talker]: Publishing: "Hello ROS 2! Message #2"
+...
+```
+
+**Congratulations!** You've created your first ROS 2 publisher. 🎉
+
+---
+
+## Your First Subscriber: The Listener
+
+Now let's create a node that receives these messages.
+
+### Step 1: Write the Listener Node
+
+Create `py_pubsub/listener.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
+
+class ListenerNode(Node):
+    def __init__(self):
+        super().__init__('listener')
+
+        # Create subscriber: topic='/chatter', message_type=String, callback=self.listener_callback
+        self.subscription_ = self.create_subscription(
+            String,
+            '/chatter',
+            self.listener_callback,
+            10  # Queue size
+        )
+
+        self.get_logger().info('Listener node started')
+
+    def listener_callback(self, msg):
+        """Called automatically when message arrives"""
+        self.get_logger().info(f'I heard: "{msg.data}"')
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = ListenerNode()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+**Key differences from talker**:
+- **`create_subscription()`** instead of `create_publisher()`
+- **Callback function** (`listener_callback`) processes incoming messages
+- **No timer**: Callback triggered by message arrival (event-driven)
+
+### Step 2: Register Listener in setup.py
+
+Add listener to `entry_points` in `setup.py`:
+
+```python
+entry_points={
+    'console_scripts': [
+        'talker = py_pubsub.talker:main',
+        'listener = py_pubsub.listener:main',  # Add this line
+    ],
+},
+```
+
+### Step 3: Build and Run
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select py_pubsub
+source install/setup.bash
+
+# Run listener in a new terminal
+ros2 run py_pubsub listener
+```
+
+**Expected output**:
+```
+[INFO] [listener]: Listener node started
+[INFO] [listener]: I heard: "Hello ROS 2! Message #0"
+[INFO] [listener]: I heard: "Hello ROS 2! Message #1"
+[INFO] [listener]: I heard: "Hello ROS 2! Message #2"
+...
+```
+
+**Try this**: Keep both talker and listener running in separate terminals. You should see synchronized message sending and receiving!
+
+---
+
+## Debugging with ROS 2 CLI Tools
+
+### List Active Topics
+
+```bash
+ros2 topic list
+```
+
+Output:
+```
+/chatter
+/parameter_events
+/rosout
+```
+
+`/chatter` is our topic! `/parameter_events` and `/rosout` are system topics.
+
+### Get Topic Info
+
+```bash
+ros2 topic info /chatter
+```
+
+Output:
+```
+Type: std_msgs/msg/String
+Publisher count: 1
+Subscription count: 1
+```
+
+**Interpretation**: 1 publisher (talker), 1 subscriber (listener), message type is `String`.
+
+### Echo Topic Messages
+
+View messages in real-time:
+
+```bash
+ros2 topic echo /chatter
+```
+
+Output:
+```
+data: 'Hello ROS 2! Message #15'
+---
+data: 'Hello ROS 2! Message #16'
+---
+```
+
+**Use case**: Verify messages are being published even if subscriber isn't working.
+
+### Check Message Type Definition
+
+```bash
+ros2 interface show std_msgs/msg/String
+```
+
+Output:
+```
+string data
+```
+
+**Interpretation**: `String` message has one field named `data` of type `string`.
+
+### Measure Topic Frequency
+
+```bash
+ros2 topic hz /chatter
+```
+
+Output:
+```
+average rate: 1.000
+  min: 1.000s max: 1.000s std dev: 0.00001s window: 10
+```
+
+**Interpretation**: Messages published at exactly 1 Hz (once per second).
+
+### Publish from Command Line
+
+You can publish messages without writing code:
+
+```bash
+ros2 topic pub /chatter std_msgs/msg/String "{data: 'Hello from CLI'}"
+```
+
+The listener will receive: `I heard: "Hello from CLI"`
+
+**Use case**: Test subscribers without writing a publisher.
+
+---
+
+## Visualizing with rqt_graph
+
+`rqt_graph` shows the ROS 2 computation graph visually.
+
+### Install and Launch
+
+```bash
+sudo apt install ros-humble-rqt-graph
+rqt_graph
+```
+
+**What you'll see**:
+
+```
+┌─────────┐      /chatter      ┌──────────┐
+│ /talker ├──────────────────→ │/listener │
+└─────────┘                     └──────────┘
+```
+
+**Interpretation**:
+- **Ovals**: Nodes (`/talker`, `/listener`)
+- **Rectangles** (if shown): Topics (`/chatter`)
+- **Arrows**: Message flow direction
+
+**Try this**:
+1. Run only talker → See `/talker` publishing to `/chatter` (no subscriber)
+2. Start listener → Arrow connects to `/listener`
+3. Stop talker → `/listener` still subscribes, but no messages arrive
+
+---
+
+## Modifying the Publisher Rate
+
+Let's make the talker publish faster.
+
+Edit `talker.py`, change timer period:
+
+```python
+# Change from 1.0 to 0.1 (10 Hz = 10 messages/second)
+self.timer_ = self.create_timer(0.1, self.timer_callback)
+```
+
+Rebuild and run:
+
+```bash
+colcon build --packages-select py_pubsub
+source install/setup.bash
+ros2 run py_pubsub talker
+```
+
+Verify with `ros2 topic hz /chatter`:
+```
+average rate: 10.000
+```
+
+**Real-world rates**:
+- Camera images: 30 Hz
+- LiDAR scans: 10-40 Hz
+- IMU data: 100-200 Hz
+- Motor commands: 50-100 Hz
+
+---
+
+## Quality of Service (QoS) Basics
+
+QoS policies control message delivery guarantees. Default (`queue_size=10`) is usually fine, but here's what it means:
+
+### Reliability
+
+- **Reliable** (default): Guaranteed delivery (like TCP)
+- **Best Effort**: May drop messages (like UDP, faster)
+
+### Durability
+
+- **Volatile** (default): New subscribers miss old messages
+- **Transient Local**: New subscribers receive last N messages
+
+### Example: Sensor data (real-time, drop old messages)
+
+```python
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
+self.publisher_ = self.create_publisher(String, '/sensor', qos)
+```
+
+**For this chapter**: Use defaults. We'll explore QoS in Module 2 (sensors).
+
+---
+
+## Common Errors and Fixes
+
+### Error: "Package 'py_pubsub' not found"
+
+**Cause**: Package not built or workspace not sourced.
+
+**Fix**:
+```bash
+cd ~/ros2_ws
+colcon build
+source install/setup.bash
+```
+
+### Error: "No executable found"
+
+**Cause**: `setup.py` entry_points not configured or package not rebuilt.
+
+**Fix**: Verify `entry_points` in `setup.py`, then rebuild.
+
+### Error: Listener receives no messages
+
+**Cause**: Topic name mismatch or talker not running.
+
+**Debug**:
+```bash
+ros2 topic list    # Check /chatter exists
+ros2 topic info /chatter  # Check publisher count > 0
+```
+
+### Error: "ModuleNotFoundError: No module named 'std_msgs'"
+
+**Cause**: Missing dependency in `package.xml`.
+
+**Fix**: Add `<depend>std_msgs</depend>` to `package.xml`, rebuild.
+
+---
+
+## Key Takeaways
+
+🎓 **Publish-subscribe pattern** decouples nodes, enabling scalable, asynchronous communication in robotics.
+
+🎓 **Publishers** send messages to topics without knowing who receives them; **subscribers** receive messages via **callback functions**.
+
+🎓 **rclpy** is the ROS 2 Python library providing `Node`, `create_publisher()`, `create_subscription()`, `create_timer()`.
+
+🎓 **ROS 2 CLI tools** (`topic list/info/echo/hz/pub`) are essential for debugging communication issues.
+
+🎓 **rqt_graph** visualizes the computation graph, showing nodes, topics, and message flow.
+
+🎓 **colcon build** compiles ROS 2 packages; **source install/setup.bash** makes them discoverable.
+
+---
+
+## What's Next?
+
+You can now create basic publishers and subscribers with standard message types (String, Int32, etc.). But what if you need **custom data structures** for your sensors?
+
+In **Chapter 1.3: Custom Messages and Data Structures**, you'll:
+
+- Design custom message types (.msg files) with multiple fields
+- Build packages containing custom messages
+- Create publishers/subscribers using your custom types
+- Understand when to use standard vs custom messages
+
+**Continue to** → [Chapter 1.3: Custom Messages](./chapter-1-3-custom-messages)
+
+---
+
+## Assessment: Coding Challenge
+
+**Goal**: Create a publisher/subscriber pair with modified behavior.
+
+**Tasks**:
+
+1. **Create new topic**: Change topic name from `/chatter` to `/sensor_data`
+2. **Increase rate**: Make talker publish at 5 Hz instead of 1 Hz
+3. **Add counter in message**: Include message counter in the string (e.g., "Sensor reading #42")
+4. **Verify communication**:
+   - Use `ros2 topic echo /sensor_data` to see messages
+   - Use `ros2 topic hz /sensor_data` to verify 5 Hz rate
+   - Use `rqt_graph` to visualize the connection
+5. **Take screenshot**: Show terminal with talker and listener running, plus rqt_graph
+
+**Expected Pass Rate**: 75% of learners complete within 45 minutes.
+
+**Bonus Challenge** (optional):
+- Make the listener count total messages received and print every 10th message: "Received 10 messages total"
+
+---
+
+## Additional Resources
+
+📚 **Official Documentation**:
+- [ROS 2 Humble - Writing a simple publisher/subscriber (Python)](https://docs.ros.org/en/humble/Tutorials/Beginner-Client-Libraries/Writing-A-Simple-Py-Publisher-And-Subscriber.html)
+- [rclpy API Documentation](https://docs.ros2.org/humble/api/rclpy/)
+- [Understanding ROS 2 Topics](https://docs.ros.org/en/humble/Tutorials/Beginner-CLI-Tools/Understanding-ROS2-Topics/Understanding-ROS2-Topics.html)
+
+📺 **Video Tutorials**:
+- The Construct - ROS 2 Publishers and Subscribers
+- Articulated Robotics - ROS 2 Node Programming Tutorial
+
+🛠️ **Community**:
+- [ROS Answers - rclpy tag](https://answers.ros.org/questions/scope:all/sort:activity-desc/tags:rclpy/)
+- [ROS 2 Python Client Library (rclpy) GitHub](https://github.com/ros2/rclpy)
+
+---
+
+**Chapter Status**: Complete ✅
+**Next Chapter**: [1.3 Custom Messages](./chapter-1-3-custom-messages)
+
+</TabItem>
+
+<TabItem value="summary" label="Summary">
+
+## Quick Summary
+
+**Learning Objectives Recap:**
+- Define publisher, subscriber, callback function, rclpy, and message type
+- Explain publish-subscribe pattern benefits for decoupling and scalability
+- Create Python publisher node sending messages at specific rates
+- Create Python subscriber node receiving messages via callbacks
+- Use ros2 CLI tools and rqt_graph for debugging
+
+**Core Concepts:**
+
+**Publish-Subscribe Pattern** enables decoupled, asynchronous communication in robotics. Publishers send messages to topics without knowing who receives them; subscribers receive messages via callback functions without knowing who sends them. This decoupling allows adding new nodes without modifying existing code—critical for complex multi-sensor robot systems.
+
+**Benefits**: (1) Decoupling—nodes don't depend on each other's implementation, (2) Scalability—add unlimited subscribers without changing publisher, (3) Asynchronous—publisher doesn't wait for processing, (4) Many-to-many—multiple publishers and subscribers per topic.
+
+**rclpy** is the ROS 2 Python client library providing the Node base class and methods like `create_publisher()`, `create_subscription()`, and `create_timer()` for building ROS 2 nodes.
+
+**Message Types** define data structures for topics. Common types: `std_msgs/String` (text), `geometry_msgs/Twist` (velocity commands), `sensor_msgs/Image` (camera images). Publishers and subscribers must use matching message types for a topic.
+
+**Creating a Publisher (Talker):**
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
+class TalkerNode(Node):
+    def __init__(self):
+        super().__init__('talker')
+        self.publisher_ = self.create_publisher(String, '/chatter', 10)
+        self.timer_ = self.create_timer(1.0, self.timer_callback)
+        self.counter_ = 0
+
+    def timer_callback(self):
+        msg = String()
+        msg.data = f'Hello ROS 2! Message #{self.counter_}'
+        self.publisher_.publish(msg)
+        self.counter_ += 1
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = TalkerNode()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+```
+
+**Key elements**: `create_publisher(type, topic, queue_size)` creates publisher, `create_timer(period, callback)` calls function repeatedly, `rclpy.spin()` enters event loop to process callbacks.
+
+**Creating a Subscriber (Listener):**
+
+```python
+class ListenerNode(Node):
+    def __init__(self):
+        super().__init__('listener')
+        self.subscription_ = self.create_subscription(
+            String, '/chatter', self.listener_callback, 10)
+
+    def listener_callback(self, msg):
+        self.get_logger().info(f'I heard: "{msg.data}"')
+```
+
+**Key difference**: `create_subscription()` takes a callback function that executes automatically when messages arrive—event-driven programming.
+
+**Essential Debugging Commands:**
+```bash
+# List topics, check info, view messages
+ros2 topic list
+ros2 topic info /chatter
+ros2 topic echo /chatter
+
+# Measure frequency and publish from CLI
+ros2 topic hz /chatter
+ros2 topic pub /chatter std_msgs/msg/String "{data: 'Test'}"
+
+# Visualize graph
+rqt_graph
+
+# Build and run package
+cd ~/ros2_ws
+colcon build --packages-select py_pubsub
+source install/setup.bash
+ros2 run py_pubsub talker
+```
+
+**ROS 2 Package Structure**: Packages use `package.xml` (dependencies), `setup.py` (entry points), and workspace organization (`~/ros2_ws/src`). Use `colcon build` to compile and `source install/setup.bash` to make packages discoverable.
+
+**Quick Check:**
+- [ ] Can you explain the benefits of pub/sub over direct function calls?
+- [ ] Can you write a basic publisher node with timer callbacks?
+- [ ] Can you write a subscriber node with message callbacks?
+- [ ] Can you use `ros2 topic echo` and `rqt_graph` for debugging?
+
+**Prerequisites for Next Chapter:** Ability to create publisher/subscriber nodes, understanding of standard message types (std_msgs), working ROS 2 workspace.
+
+</TabItem>
+
+</Tabs>

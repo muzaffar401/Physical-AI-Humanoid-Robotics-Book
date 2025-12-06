@@ -1,0 +1,10 @@
+{
+  "label": "Module 2: Gazebo Simulation",
+  "position": 2,
+  "link": {
+    "type": "generated-index",
+    "description": "Learn physics-based robot simulation with Gazebo. Simulate sensors, test navigation algorithms, and develop robots in safe virtual environments before deploying to hardware."
+  },
+  "collapsed": true,
+  "collapsible": true
+}

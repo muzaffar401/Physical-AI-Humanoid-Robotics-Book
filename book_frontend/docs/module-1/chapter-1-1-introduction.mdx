@@ -1,0 +1,583 @@
+---
+id: chapter-1-1-introduction
+title: "Chapter 1.1: Introduction to ROS 2 and Physical AI"
+sidebar_label: "1.1 Introduction"
+sidebar_position: 1
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs defaultValue="content" groupId="chapter-view">
+
+<TabItem value="content" label="Content" default>
+
+# Chapter 1.1: Introduction to ROS 2 and Physical AI
+
+## Welcome to Physical AI and Robotics!
+
+Imagine a robot that can navigate your home, understand your voice commands, recognize objects, and perform useful tasks. This isn't science fiction—it's **Physical AI**, where artificial intelligence meets the physical world through robotics. And at the heart of modern robotics is **ROS 2 (Robot Operating System 2)**, the middleware that connects sensors, motors, and AI into a cohesive robotic intelligence.
+
+In this chapter, you'll discover what Physical AI is, why robotics needs middleware like ROS 2, and how to install and run your first ROS 2 simulation. By the end, you'll have ROS 2 Humble running on your system and a foundational understanding of how robots communicate.
+
+---
+
+## Learning Objectives
+
+By the end of this chapter, you will:
+
+- **Remember**: Define ROS 2, node, topic, message, Physical AI, and middleware
+- **Understand**: Explain why Physical AI requires middleware like ROS 2 for distributed robotics systems
+- **Understand**: Compare ROS 1 vs ROS 2 architecture (centralized master vs DDS peer-to-peer)
+- **Apply**: Install ROS 2 Humble on Ubuntu 22.04 and run the turtlesim demo to verify installation
+
+**Estimated Time**: 2 hours
+
+---
+
+## Prerequisites
+
+- **Ubuntu 22.04** (recommended) or **Windows 10/11 with WSL2**
+- **Basic command-line familiarity** (navigating directories, running commands)
+- **No prior robotics experience required!**
+
+---
+
+## What You'll Build
+
+By the end of this chapter, you'll have:
+
+✅ ROS 2 Humble installed and configured on your system
+✅ Your first robot simulation running (TurtleSim)
+✅ Understanding of why middleware is essential for Physical AI
+✅ Knowledge of ROS 2's architecture and how it differs from ROS 1
+
+---
+
+## What is Physical AI?
+
+**Physical AI** is artificial intelligence that interacts with the real world through physical embodiment—robots with sensors, actuators, and the ability to navigate and manipulate their environment.
+
+### The Gap Between Digital AI and Physical World
+
+Digital AI (like ChatGPT or image generators) operates in virtual environments with perfect information. Physical AI faces challenges that pure software doesn't:
+
+- **Real-time constraints**: A humanoid robot balancing must react in milliseconds
+- **Sensor noise**: Cameras see dust, LiDAR gets reflections, IMUs drift over time
+- **Physical forces**: Gravity, friction, momentum, collisions
+- **Uncertainty**: The world is unpredictable—objects move, lighting changes, floors are uneven
+
+### Examples of Physical AI
+
+**🤖 Humanoid Robots**
+- **Boston Dynamics Atlas**: Parkour-performing bipedal robot with advanced balance control
+- **Tesla Optimus**: General-purpose humanoid designed for household and factory tasks
+- **Figure 01**: Humanoid focused on warehouse automation and logistics
+
+**🚗 Autonomous Vehicles**
+- **Waymo**: Self-driving cars navigating city streets
+- **Tesla Autopilot**: Highway navigation and parking assistance
+- **Agricultural robots**: Autonomous tractors and harvesters
+
+**🏭 Industrial Robots**
+- **Warehouse automation**: Amazon's robotic fulfillment centers
+- **Collaborative robots (cobots)**: Robots working alongside humans in factories
+- **Surgical robots**: Da Vinci surgical systems with precision control
+
+**🏠 Home Robots**
+- **Roomba**: Autonomous vacuum cleaners
+- **Companion robots**: Social robots for eldercare and education
+- **Service robots**: Delivery robots in hotels and hospitals
+
+All of these systems share a common challenge: **How do you coordinate hundreds of sensors and actuators in real-time?** This is where middleware comes in.
+
+---
+
+## Why Robotics Needs Middleware
+
+A modern robot isn't a single program—it's a **distributed system** with dozens of independent processes:
+
+- Camera drivers publishing 30 images per second
+- LiDAR sensors streaming 3D point clouds
+- AI models detecting objects from camera feeds
+- Navigation algorithms planning collision-free paths
+- Motor controllers executing movement commands
+- Voice recognition processing spoken commands
+- Balance controllers stabilizing a bipedal humanoid
+
+**Without middleware**, each team would need to write custom networking code, serialization, message queues, and discovery protocols. **With ROS 2**, all of this is standardized.
+
+### What is Middleware?
+
+**Middleware** is software that sits between the operating system and applications, providing common services:
+
+- **Message passing**: Send data between processes (even on different computers)
+- **Discovery**: Nodes automatically find each other on the network
+- **Serialization**: Convert data structures to bytes for transmission
+- **Quality of Service (QoS)**: Guarantee message delivery or prioritize real-time data
+
+**Analogy**: Think of middleware as the postal service for robots. You write a letter (message), address it to a topic (like `/camera/image`), drop it in the mailbox, and the postal service (middleware) ensures it reaches all subscribers—without you worrying about network protocols or IP addresses.
+
+---
+
+## ROS 2 Architecture: The Graph Model
+
+ROS 2 organizes computation into a **graph** of **nodes** communicating via **topics**.
+
+### Key Concepts
+
+**Node**: An independent process that performs a specific task (e.g., camera driver, object detector, motor controller).
+
+**Topic**: A named channel for asynchronous communication (e.g., `/camera/image_raw`, `/cmd_vel`).
+
+**Publisher**: A node component that sends messages to a topic.
+
+**Subscriber**: A node component that receives messages from a topic.
+
+**Message**: A data structure transmitted over topics (e.g., sensor readings, commands, images).
+
+### Example: Humanoid Vision System
+
+```
+┌─────────────┐      /camera/image      ┌──────────────┐
+│ camera_node ├──────────────────────────>│ detector_node│
+└─────────────┘                          └───────┬──────┘
+                                                 │
+                                        /detections
+                                                 │
+                                                 v
+                                         ┌────────────────┐
+                                         │ controller_node│
+                                         └────────────────┘
+```
+
+- **camera_node**: Publishes images at 30 Hz to `/camera/image`
+- **detector_node**: Subscribes to `/camera/image`, runs object detection AI, publishes results to `/detections`
+- **controller_node**: Subscribes to `/detections`, commands robot to reach for detected objects
+
+**Key Insight**: Nodes are **decoupled**. The camera doesn't know who's receiving its images. If you add a new subscriber (e.g., a recording node), the camera node requires zero changes. This is the power of publish-subscribe architecture.
+
+---
+
+## ROS 1 vs ROS 2: Why We Upgraded
+
+ROS 1 served the robotics community well for over a decade, but it had fundamental limitations. ROS 2 is a complete rewrite addressing these issues.
+
+### Architecture Comparison
+
+| Feature | ROS 1 | ROS 2 |
+|---------|-------|-------|
+| **Communication** | Centralized rosmaster | Peer-to-peer DDS |
+| **Real-time** | Not guaranteed | Real-time capable |
+| **Security** | No encryption | DDS security (encrypted) |
+| **Platforms** | Linux only | Linux, Windows, macOS |
+| **Multi-robot** | Complex workarounds | Native support |
+| **Lifecycle** | None | Managed node lifecycles |
+
+### ROS 1: The Centralized Master Problem
+
+In ROS 1, every node connects to a central **rosmaster** process:
+
+```
+        ┌─────────────┐
+        │  rosmaster  │  <--- Single point of failure!
+        └──────┬──────┘
+               │
+       ┌───────┼───────┐
+       │       │       │
+   ┌───v──┐ ┌──v──┐ ┌──v──┐
+   │Node A│ │Node B│ │Node C│
+   └──────┘ └─────┘ └─────┘
+```
+
+**Problems**:
+- If rosmaster crashes, the entire robot system fails
+- No real-time guarantees (master becomes bottleneck)
+- Requires manual network configuration for multi-robot systems
+
+### ROS 2: Peer-to-Peer Discovery via DDS
+
+ROS 2 uses **DDS (Data Distribution Service)**, a proven middleware standard from aerospace and defense industries:
+
+```
+   ┌──────┐     ┌─────┐     ┌──────┐
+   │Node A│<───>│Node B│<───>│Node C│
+   └──────┘     └─────┘     └──────┘
+      ^                         ^
+      └─────────────────────────┘
+        Peer-to-peer via DDS
+```
+
+**Advantages**:
+- **No single point of failure**: Nodes discover each other via multicast
+- **Real-time capable**: DDS supports deterministic latency and priority-based QoS
+- **Secure**: End-to-end encryption for safety-critical applications
+- **Cross-platform**: Same code runs on Linux, Windows, embedded systems
+
+**Industry Adoption**: ROS 2 powers Boston Dynamics Spot, ABB industrial robots, NASA's VIPER lunar rover, and countless commercial products.
+
+---
+
+## Hands-On: Installing ROS 2 Humble
+
+Let's get ROS 2 running on your system! We'll install **ROS 2 Humble Hawksbill**, the LTS (Long-Term Support) release supported until 2027.
+
+### System Requirements
+
+- **Ubuntu 22.04 Jammy Jellyfish** (recommended)
+- **OR** Windows 10/11 with WSL2 (Ubuntu 22.04 in WSL)
+- **3GB free disk space**
+- **Sudo privileges** (to install packages)
+
+### Installation Steps
+
+#### 1. Set Locale
+
+Ensure your system supports UTF-8:
+
+```bash
+locale  # Check current settings
+sudo apt update && sudo apt install -y locales
+sudo locale-gen en_US en_US.UTF-8
+sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
+```
+
+#### 2. Add ROS 2 APT Repository
+
+```bash
+# Install required tools
+sudo apt install -y software-properties-common
+sudo add-apt-repository universe
+
+# Add ROS 2 GPG key
+sudo apt update && sudo apt install -y curl
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+
+# Add repository to sources list
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
+```
+
+#### 3. Install ROS 2 Desktop
+
+```bash
+sudo apt update
+sudo apt upgrade -y
+sudo apt install -y ros-humble-desktop
+```
+
+**What gets installed**:
+- `ros-humble-desktop`: Core ROS 2 libraries, tools, RViz2, demos, tutorials (~2.5GB)
+
+**Installation time**: 10-15 minutes depending on internet speed.
+
+#### 4. Set Up Environment
+
+Every time you open a new terminal, you need to "source" ROS 2 to add its commands to your PATH:
+
+```bash
+source /opt/ros/humble/setup.bash
+```
+
+**To avoid typing this every time**, add it to your `~/.bashrc`:
+
+```bash
+echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+source ~/.bashrc
+```
+
+Verify installation:
+
+```bash
+printenv | grep ROS
+```
+
+You should see output like:
+```
+ROS_VERSION=2
+ROS_PYTHON_VERSION=3
+ROS_DISTRO=humble
+```
+
+---
+
+## Running Your First Robot: TurtleSim Demo
+
+**TurtleSim** is a simple 2D robot simulator that comes with ROS 2. It's perfect for learning ROS 2 concepts without complex hardware.
+
+### Step 1: Launch TurtleSim
+
+Open a terminal and run:
+
+```bash
+ros2 run turtlesim turtlesim_node
+```
+
+You should see a blue window with a turtle in the center (a small triangular robot on a blue background).
+
+**What's happening**:
+- `ros2 run` launches a ROS 2 executable
+- `turtlesim` is the package name
+- `turtlesim_node` is the executable (the actual node)
+
+### Step 2: Control the Turtle with Keyboard
+
+**Open a second terminal** (keep the first one running!) and run:
+
+```bash
+ros2 run turtlesim turtle_teleop_key
+```
+
+You'll see:
+```
+Reading from keyboard
+---------------------------
+Use arrow keys to move the turtle.
+'q' to quit.
+```
+
+**Try it**: Press the arrow keys and watch the turtle move! It leaves a colorful trail showing its path.
+
+**What's happening**:
+- `turtle_teleop_key` node reads your keyboard inputs
+- Publishes velocity commands to `/turtle1/cmd_vel` topic
+- `turtlesim_node` subscribes to `/turtle1/cmd_vel` and moves the turtle
+
+### Step 3: Inspect the ROS 2 Graph
+
+**Open a third terminal** and explore what's running:
+
+#### List Active Nodes
+
+```bash
+ros2 node list
+```
+
+Output:
+```
+/turtlesim
+/teleop_turtle
+```
+
+These are the two nodes you started.
+
+#### List Active Topics
+
+```bash
+ros2 topic list
+```
+
+Output:
+```
+/turtle1/cmd_vel
+/turtle1/color_sensor
+/turtle1/pose
+/parameter_events
+/rosout
+```
+
+**Key topics**:
+- `/turtle1/cmd_vel`: Velocity commands (teleop → turtlesim)
+- `/turtle1/pose`: Turtle's position and orientation (turtlesim publishes)
+
+#### See Live Messages
+
+Watch position updates in real-time:
+
+```bash
+ros2 topic echo /turtle1/pose
+```
+
+You'll see continuous output:
+```yaml
+x: 5.544444561004639
+y: 5.544444561004639
+theta: 0.0
+linear_velocity: 0.0
+angular_velocity: 0.0
+---
+```
+
+Press `Ctrl+C` to stop.
+
+### Step 4: Visualize the Graph
+
+Install and launch `rqt_graph`:
+
+```bash
+sudo apt install -y ros-humble-rqt-graph
+rqt_graph
+```
+
+You'll see a graphical representation:
+
+```
+┌──────────────┐      /turtle1/cmd_vel      ┌────────────┐
+│ /teleop_turtle├──────────────────────────>│ /turtlesim │
+└──────────────┘                            └─────┬──────┘
+                                                  │
+                                         /turtle1/pose
+                                                  │
+                                                  v
+                                            (published)
+```
+
+**Insight**: This is your first ROS 2 graph! You can see the pub/sub relationships visually.
+
+---
+
+## Troubleshooting Common Issues
+
+### Issue: "ros2: command not found"
+
+**Cause**: ROS 2 environment not sourced.
+
+**Fix**:
+```bash
+source /opt/ros/humble/setup.bash
+```
+
+Make sure it's in your `~/.bashrc` for future terminals.
+
+### Issue: TurtleSim window doesn't appear
+
+**Cause**: Missing X11 display (common in WSL2).
+
+**Fix for WSL2**:
+1. Install VcXsrv or X410 on Windows
+2. Add to `~/.bashrc`:
+   ```bash
+   export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2}'):0.0
+   ```
+3. Restart terminal and try again
+
+### Issue: "Failed to create application: no display name and no $DISPLAY environment variable"
+
+**Cause**: Same as above (X11 display issue).
+
+**Alternative**: Use headless mode (no GUI):
+```bash
+ros2 run turtlesim turtlesim_node --ros-args -r __ns:=/turtle1
+```
+
+Then visualize data in terminal with `ros2 topic echo`.
+
+---
+
+## Key Takeaways
+
+🎓 **Physical AI** combines artificial intelligence with physical embodiment (robots) to interact with the real world.
+
+🎓 **Middleware** (like ROS 2) is essential for coordinating distributed robotics systems with multiple sensors, actuators, and AI modules.
+
+🎓 **ROS 2 graph model**: Nodes communicate via topics using publish-subscribe patterns, enabling decoupled, scalable architectures.
+
+🎓 **ROS 2 vs ROS 1**: ROS 2 uses peer-to-peer DDS (no centralized master), supports real-time systems, and works cross-platform.
+
+🎓 **TurtleSim demo** demonstrates core ROS 2 concepts: nodes, topics, messages, and command-line tools (`ros2 run`, `ros2 topic list/echo`, `rqt_graph`).
+
+---
+
+## What's Next?
+
+Now that you have ROS 2 installed and understand the basics, you're ready to create your own nodes!
+
+In **Chapter 1.2: Your First ROS 2 Node - Publishers & Subscribers**, you'll:
+
+- Write Python code to create custom ROS 2 nodes
+- Build a talker node that publishes messages
+- Build a listener node that subscribes and processes messages
+- Use `rqt_graph` to visualize your custom communication system
+
+**Continue to** → [Chapter 1.2: Publishers & Subscribers](./chapter-1-2-pubsub)
+
+---
+
+## Assessment: Installation Challenge
+
+**Goal**: Verify your ROS 2 installation by completing these tasks.
+
+**Tasks**:
+1. Install ROS 2 Humble on your system
+2. Run TurtleSim and make the turtle draw a square path using keyboard controls
+3. Take a screenshot showing:
+   - TurtleSim window with square path drawn
+   - Terminal output of `ros2 topic list` showing active topics
+4. In a terminal, run `ros2 topic echo /turtle1/pose` and screenshot the output
+
+**Expected Pass Rate**: 85% of learners complete within 30 minutes.
+
+**Troubleshooting Help**: If you encounter issues, refer to the Troubleshooting section above or ask in the course forums with error messages and screenshots.
+
+---
+
+## Additional Resources
+
+📚 **Official Documentation**:
+- [ROS 2 Humble Documentation](https://docs.ros.org/en/humble/)
+- [ROS 2 Installation Guide](https://docs.ros.org/en/humble/Installation.html)
+- [Turtlesim Tutorials](https://docs.ros.org/en/humble/Tutorials/Beginner-CLI-Tools/Introducing-Turtlesim/Introducing-Turtlesim.html)
+
+📺 **Video Tutorials**:
+- The Construct - ROS 2 Basics in 5 Days
+- Articulated Robotics - ROS 2 Humble Tutorials
+
+🛠️ **Community**:
+- [ROS Answers](https://answers.ros.org/) - Q&A forum
+- [ROS Discourse](https://discourse.ros.org/) - Discussions and announcements
+- [r/ROS Reddit Community](https://reddit.com/r/ROS)
+
+---
+
+**Chapter Status**: Complete ✅
+**Next Chapter**: [1.2 Publishers & Subscribers](./chapter-1-2-pubsub)
+
+</TabItem>
+
+<TabItem value="summary" label="Summary">
+
+## Quick Summary
+
+**Learning Objectives Recap:**
+- Define ROS 2, nodes, topics, messages, Physical AI, and middleware
+- Explain why Physical AI systems require middleware for coordination
+- Compare ROS 1 vs ROS 2 architecture differences
+- Install ROS 2 Humble and run your first robot simulation
+
+**Core Concepts:**
+
+**Physical AI** is artificial intelligence embodied in physical robots that interact with the real world. Unlike digital AI operating in virtual environments, Physical AI must handle real-time constraints, sensor noise, physical forces, and environmental uncertainty. Examples include humanoid robots (Boston Dynamics Atlas, Tesla Optimus), autonomous vehicles (Waymo), industrial automation, and home robots (Roomba).
+
+**Middleware** is software that sits between the operating system and applications, providing essential services for distributed robotics systems. Modern robots are distributed systems with dozens of independent processes—camera drivers, AI models, navigation algorithms, motor controllers—all running simultaneously. Middleware like ROS 2 standardizes message passing, node discovery, data serialization, and quality of service guarantees.
+
+**ROS 2 Graph Model** organizes computation into nodes communicating via topics. A **node** is an independent process performing a specific task. A **topic** is a named channel for asynchronous communication. **Publishers** send messages to topics; **subscribers** receive them. This publish-subscribe architecture decouples components—nodes don't need to know who's listening, enabling scalable, modular systems.
+
+**ROS 1 vs ROS 2:** ROS 1 used a centralized rosmaster (single point of failure, no real-time guarantees, Linux-only). ROS 2 uses **DDS (Data Distribution Service)**, a peer-to-peer middleware from aerospace industries. Key advantages: no single point of failure, real-time capable, encrypted security, cross-platform support (Linux, Windows, macOS), and native multi-robot systems.
+
+**Essential Commands:**
+```bash
+# Source ROS 2 environment (add to ~/.bashrc)
+source /opt/ros/humble/setup.bash
+
+# Launch TurtleSim demo
+ros2 run turtlesim turtlesim_node
+ros2 run turtlesim turtle_teleop_key
+
+# Inspect the ROS 2 graph
+ros2 node list                    # List active nodes
+ros2 topic list                   # List active topics
+ros2 topic echo /turtle1/pose     # View live messages
+rqt_graph                         # Visualize graph
+```
+
+**Quick Check:**
+- [ ] Can you explain why robotics needs middleware?
+- [ ] Can you describe the ROS 2 graph model (nodes, topics, pub/sub)?
+- [ ] Can you list the differences between ROS 1 and ROS 2?
+- [ ] Have you successfully installed ROS 2 Humble and run TurtleSim?
+
+**Prerequisites for Next Chapter:** ROS 2 Humble installed, basic understanding of nodes and topics, ability to run ros2 commands in terminal.
+
+</TabItem>
+
+</Tabs>

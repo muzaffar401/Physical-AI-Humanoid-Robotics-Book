@@ -1,0 +1,10 @@
+{
+  "label": "Module 3: NVIDIA Isaac Sim",
+  "position": 3,
+  "link": {
+    "type": "generated-index",
+    "description": "Master photorealistic robot simulation with NVIDIA Isaac Sim. Leverage GPU acceleration, advanced physics, and synthetic data generation for cutting-edge robotics development."
+  },
+  "collapsed": true,
+  "collapsible": true
+}

@@ -1,0 +1,880 @@
+---
+id: chapter-1-7-mini-project
+title: "Chapter 1.7: Module 1 Mini-Project - Sensor Tower"
+sidebar_label: "1.7 Mini-Project"
+sidebar_position: 7
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs defaultValue="content" groupId="chapter-view">
+
+<TabItem value="content" label="Content" default>
+
+# Chapter 1.7: Module 1 Mini-Project - Sensor Tower
+
+## Putting It All Together
+
+You've learned ROS 2 fundamentals: publishers, subscribers, custom messages, services, URDF, and RViz2. Now it's time to **build a complete system** that integrates everything.
+
+In this mini-project, you'll create a **sensor tower**—a multi-sensor system that monitors environmental conditions (temperature, humidity, light) and displays data in real-time.
+
+---
+
+## Learning Objectives
+
+By the end of this mini-project, you will:
+
+- **Apply**: Integrate publishers, subscribers, custom messages in a multi-node system
+- **Create**: Design 3 custom message types for different sensors
+- **Implement**: Build 4 ROS 2 nodes (3 sensors + 1 monitor)
+- **Analyze**: Verify system with `rqt_graph`, `ros2 topic echo`, and logs
+- **Evaluate**: Demonstrate complete understanding of Module 1 concepts
+
+**Estimated Time**: 1.5 hours
+
+---
+
+## Prerequisites
+
+- **All Module 1 chapters complete** (1.1-1.6)
+- **ROS 2 workspace**: `~/ros2_ws`
+- **Custom messages package**: `custom_msgs` from Chapter 1.3
+
+---
+
+## Project Requirements
+
+Build a sensor tower system with the following specifications:
+
+### System Architecture
+
+```
+┌─────────────────┐      /sensors/temperature      ┌─────────────┐
+│ Temperature     ├──────────────────────────────>│             │
+│ Sensor (1 Hz)   │                                │   Monitor   │
+└─────────────────┘                                │    Node     │
+                                                   │             │
+┌─────────────────┐      /sensors/humidity         │  (Displays  │
+│ Humidity        ├──────────────────────────────>│   all data) │
+│ Sensor (2 Hz)   │                                │             │
+└─────────────────┘                                └─────────────┘
+                                                        ↑
+┌─────────────────┐      /sensors/light                │
+│ Light           ├────────────────────────────────────┘
+│ Sensor (5 Hz)   │
+└─────────────────┘
+```
+
+### Functional Requirements
+
+1. **Three sensor publisher nodes**:
+   - **TemperatureSensor**: Publishes to `/sensors/temperature` at **1 Hz**
+   - **HumiditySensor**: Publishes to `/sensors/humidity` at **2 Hz**
+   - **LightSensor**: Publishes to `/sensors/light` at **5 Hz**
+
+2. **One monitor subscriber node**:
+   - Subscribes to all 3 sensor topics
+   - Logs received data with timestamps
+   - Displays summary every 10 seconds
+
+3. **Three custom message types**:
+   - `Temperature.msg`: temperature (float32), timestamp (int64), sensor_id (string)
+   - `Humidity.msg`: humidity (float32), timestamp (int64), sensor_id (string)
+   - `LightLevel.msg`: light_level (float32), timestamp (int64), sensor_id (string)
+
+4. **Verification**:
+   - Use `rqt_graph` to visualize system topology
+   - Use `ros2 topic echo` to verify message publishing
+   - Monitor logs for correct data flow
+
+---
+
+## Step-by-Step Implementation
+
+### Step 1: Create Custom Messages
+
+Add three new message files to `custom_msgs/msg/`:
+
+**Temperature.msg**:
+```
+# Temperature sensor reading
+
+float32 temperature    # Degrees Celsius
+int64 timestamp        # Unix time (nanoseconds)
+string sensor_id       # Sensor identifier
+```
+
+**Humidity.msg**:
+```
+# Humidity sensor reading
+
+float32 humidity       # Relative humidity (%)
+int64 timestamp        # Unix time (nanoseconds)
+string sensor_id       # Sensor identifier
+```
+
+**LightLevel.msg**:
+```
+# Light level sensor reading
+
+float32 light_level    # Lux (0-10000)
+int64 timestamp        # Unix time (nanoseconds)
+string sensor_id       # Sensor identifier
+```
+
+### Step 2: Update custom_msgs Package
+
+Edit `custom_msgs/CMakeLists.txt`:
+
+```cmake
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/SensorData.msg"
+  "msg/IMU.msg"
+  "msg/Temperature.msg"      # Add
+  "msg/Humidity.msg"         # Add
+  "msg/LightLevel.msg"       # Add
+  "srv/AddTwoInts.srv"
+  "srv/SetMotorSpeed.srv"
+)
+```
+
+**Build messages**:
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select custom_msgs
+source install/setup.bash
+```
+
+**Verify**:
+
+```bash
+ros2 interface show custom_msgs/msg/Temperature
+ros2 interface show custom_msgs/msg/Humidity
+ros2 interface show custom_msgs/msg/LightLevel
+```
+
+---
+
+### Step 3: Create Sensor Tower Package
+
+```bash
+cd ~/ros2_ws/src
+ros2 pkg create --build-type ament_python sensor_tower
+cd sensor_tower
+```
+
+Create directories:
+
+```bash
+mkdir sensor_tower  # Python package directory (if not exists)
+```
+
+---
+
+### Step 4: Temperature Sensor Node
+
+Create `sensor_tower/temperature_sensor.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from custom_msgs.msg import Temperature
+import time
+import random
+
+
+class TemperatureSensor(Node):
+    def __init__(self):
+        super().__init__('temperature_sensor')
+
+        # Publisher: /sensors/temperature at 1 Hz
+        self.publisher_ = self.create_publisher(
+            Temperature,
+            '/sensors/temperature',
+            10
+        )
+
+        self.timer_ = self.create_timer(1.0, self.publish_temperature)  # 1 Hz
+        self.base_temp = 22.0  # Base temperature (°C)
+
+        self.get_logger().info('Temperature sensor started (1 Hz)')
+
+    def publish_temperature(self):
+        msg = Temperature()
+
+        # Simulate temperature with small random variations
+        msg.temperature = self.base_temp + random.uniform(-2.0, 2.0)
+        msg.timestamp = int(time.time() * 1e9)  # Nanoseconds
+        msg.sensor_id = 'temp_sensor_01'
+
+        self.publisher_.publish(msg)
+        self.get_logger().info(f'Temperature: {msg.temperature:.2f}°C')
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = TemperatureSensor()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+---
+
+### Step 5: Humidity Sensor Node
+
+Create `sensor_tower/humidity_sensor.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from custom_msgs.msg import Humidity
+import time
+import random
+
+
+class HumiditySensor(Node):
+    def __init__(self):
+        super().__init__('humidity_sensor')
+
+        self.publisher_ = self.create_publisher(
+            Humidity,
+            '/sensors/humidity',
+            10
+        )
+
+        self.timer_ = self.create_timer(0.5, self.publish_humidity)  # 2 Hz
+        self.base_humidity = 60.0  # Base humidity (%)
+
+        self.get_logger().info('Humidity sensor started (2 Hz)')
+
+    def publish_humidity(self):
+        msg = Humidity()
+
+        msg.humidity = self.base_humidity + random.uniform(-10.0, 10.0)
+        msg.timestamp = int(time.time() * 1e9)
+        msg.sensor_id = 'humidity_sensor_01'
+
+        self.publisher_.publish(msg)
+        self.get_logger().info(f'Humidity: {msg.humidity:.1f}%')
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = HumiditySensor()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+---
+
+### Step 6: Light Sensor Node
+
+Create `sensor_tower/light_sensor.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from custom_msgs.msg import LightLevel
+import time
+import random
+
+
+class LightSensor(Node):
+    def __init__(self):
+        super().__init__('light_sensor')
+
+        self.publisher_ = self.create_publisher(
+            LightLevel,
+            '/sensors/light',
+            10
+        )
+
+        self.timer_ = self.create_timer(0.2, self.publish_light)  # 5 Hz
+        self.base_light = 500.0  # Base light level (lux)
+
+        self.get_logger().info('Light sensor started (5 Hz)')
+
+    def publish_light(self):
+        msg = LightLevel()
+
+        msg.light_level = self.base_light + random.uniform(-100.0, 100.0)
+        msg.timestamp = int(time.time() * 1e9)
+        msg.sensor_id = 'light_sensor_01'
+
+        self.publisher_.publish(msg)
+        self.get_logger().info(f'Light: {msg.light_level:.0f} lux')
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = LightSensor()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+---
+
+### Step 7: Monitor Node
+
+Create `sensor_tower/monitor_node.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from custom_msgs.msg import Temperature, Humidity, LightLevel
+import time
+
+
+class SensorMonitor(Node):
+    def __init__(self):
+        super().__init__('sensor_monitor')
+
+        # Subscribe to all three sensor topics
+        self.temp_sub = self.create_subscription(
+            Temperature,
+            '/sensors/temperature',
+            self.temperature_callback,
+            10
+        )
+
+        self.humidity_sub = self.create_subscription(
+            Humidity,
+            '/sensors/humidity',
+            self.humidity_callback,
+            10
+        )
+
+        self.light_sub = self.create_subscription(
+            LightLevel,
+            '/sensors/light',
+            self.light_callback,
+            10
+        )
+
+        # Store latest readings
+        self.latest_temp = None
+        self.latest_humidity = None
+        self.latest_light = None
+
+        # Summary timer (every 10 seconds)
+        self.summary_timer = self.create_timer(10.0, self.print_summary)
+
+        # Counters
+        self.temp_count = 0
+        self.humidity_count = 0
+        self.light_count = 0
+
+        self.get_logger().info('Sensor monitor started')
+
+    def temperature_callback(self, msg):
+        self.latest_temp = msg.temperature
+        self.temp_count += 1
+        self.get_logger().info(
+            f'[TEMP] {msg.sensor_id}: {msg.temperature:.2f}°C'
+        )
+
+    def humidity_callback(self, msg):
+        self.latest_humidity = msg.humidity
+        self.humidity_count += 1
+        self.get_logger().info(
+            f'[HUMIDITY] {msg.sensor_id}: {msg.humidity:.1f}%'
+        )
+
+    def light_callback(self, msg):
+        self.latest_light = msg.light_level
+        self.light_count += 1
+        self.get_logger().info(
+            f'[LIGHT] {msg.sensor_id}: {msg.light_level:.0f} lux'
+        )
+
+    def print_summary(self):
+        self.get_logger().info('=' * 60)
+        self.get_logger().info('SENSOR TOWER SUMMARY (Last 10 seconds)')
+        self.get_logger().info(f'  Temperature:  {self.latest_temp:.2f}°C (received {self.temp_count} msgs)')
+        self.get_logger().info(f'  Humidity:     {self.latest_humidity:.1f}% (received {self.humidity_count} msgs)')
+        self.get_logger().info(f'  Light Level:  {self.latest_light:.0f} lux (received {self.light_count} msgs)')
+        self.get_logger().info('=' * 60)
+
+        # Reset counters
+        self.temp_count = 0
+        self.humidity_count = 0
+        self.light_count = 0
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = SensorMonitor()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+---
+
+### Step 8: Configure Package Files
+
+**Edit `setup.py`**:
+
+```python
+from setuptools import setup
+
+package_name = 'sensor_tower'
+
+setup(
+    name=package_name,
+    version='0.0.1',
+    packages=[package_name],
+    data_files=[
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+        ('share/' + package_name, ['package.xml']),
+    ],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='Your Name',
+    maintainer_email='you@email.com',
+    description='Sensor Tower Mini-Project',
+    license='Apache License 2.0',
+    tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+            'temperature_sensor = sensor_tower.temperature_sensor:main',
+            'humidity_sensor = sensor_tower.humidity_sensor:main',
+            'light_sensor = sensor_tower.light_sensor:main',
+            'monitor_node = sensor_tower.monitor_node:main',
+        ],
+    },
+)
+```
+
+**Edit `package.xml`**:
+
+Add dependency:
+
+```xml
+<depend>custom_msgs</depend>
+<depend>rclpy</depend>
+```
+
+---
+
+### Step 9: Build and Run
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select sensor_tower
+source install/setup.bash
+```
+
+**Run each node in separate terminals**:
+
+```bash
+# Terminal 1: Temperature Sensor
+ros2 run sensor_tower temperature_sensor
+
+# Terminal 2: Humidity Sensor
+ros2 run sensor_tower humidity_sensor
+
+# Terminal 3: Light Sensor
+ros2 run sensor_tower light_sensor
+
+# Terminal 4: Monitor
+ros2 run sensor_tower monitor_node
+```
+
+**Expected output (Monitor)**:
+
+```
+[INFO] [sensor_monitor]: [TEMP] temp_sensor_01: 23.45°C
+[INFO] [sensor_monitor]: [HUMIDITY] humidity_sensor_01: 65.3%
+[INFO] [sensor_monitor]: [LIGHT] light_sensor_01: 523 lux
+[INFO] [sensor_monitor]: [LIGHT] light_sensor_01: 487 lux
+[INFO] [sensor_monitor]: [HUMIDITY] humidity_sensor_01: 58.7%
+[INFO] [sensor_monitor]: [TEMP] temp_sensor_01: 21.89°C
+...
+[INFO] [sensor_monitor]: ============================================================
+[INFO] [sensor_monitor]: SENSOR TOWER SUMMARY (Last 10 seconds)
+[INFO] [sensor_monitor]:   Temperature:  22.34°C (received 10 msgs)
+[INFO] [sensor_monitor]:   Humidity:     62.1% (received 20 msgs)
+[INFO] [sensor_monitor]:   Light Level:  512 lux (received 50 msgs)
+[INFO] [sensor_monitor]: ============================================================
+```
+
+✅ **System working!**
+
+---
+
+## Verification and Testing
+
+### 1. Verify Topic List
+
+```bash
+ros2 topic list
+```
+
+**Expected**:
+```
+/sensors/temperature
+/sensors/humidity
+/sensors/light
+/parameter_events
+/rosout
+```
+
+### 2. Check Topic Rates
+
+```bash
+ros2 topic hz /sensors/temperature  # Should be ~1 Hz
+ros2 topic hz /sensors/humidity     # Should be ~2 Hz
+ros2 topic hz /sensors/light        # Should be ~5 Hz
+```
+
+### 3. Echo Topics
+
+```bash
+ros2 topic echo /sensors/temperature
+```
+
+**Output**:
+```
+temperature: 22.45
+timestamp: 1701234567890123456
+sensor_id: 'temp_sensor_01'
+---
+```
+
+### 4. Visualize with rqt_graph
+
+```bash
+rqt_graph
+```
+
+**Expected graph**:
+
+```
+┌────────────────────┐
+│ /temperature_sensor│──┐
+└────────────────────┘  │
+                        │  /sensors/temperature
+┌────────────────────┐  ├──────────────────> ┌─────────────────┐
+│ /humidity_sensor   │──┤  /sensors/humidity  │ /sensor_monitor │
+└────────────────────┘  │                     └─────────────────┘
+                        │  /sensors/light
+┌────────────────────┐  │
+│ /light_sensor      │──┘
+└────────────────────┘
+```
+
+---
+
+## Optional Enhancements
+
+### 1. Add URDF Visualization
+
+Create `sensor_tower.urdf` representing the physical tower:
+
+```xml
+<?xml version="1.0"?>
+<robot name="sensor_tower">
+  <link name="base">
+    <visual>
+      <geometry>
+        <box size="0.2 0.2 1.0"/>  <!-- Tall tower -->
+      </geometry>
+      <material name="gray">
+        <color rgba="0.5 0.5 0.5 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <link name="temp_sensor">
+    <visual>
+      <geometry>
+        <cylinder radius="0.05" length="0.1"/>
+      </geometry>
+      <material name="red">
+        <color rgba="1 0 0 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="temp_mount" type="fixed">
+    <parent link="base"/>
+    <child link="temp_sensor"/>
+    <origin xyz="0 0 0.7" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Add humidity and light sensors similarly -->
+</robot>
+```
+
+Visualize in RViz2 (Chapter 1.6 techniques).
+
+### 2. Add Service for Calibration
+
+Create service to reset sensor baselines:
+
+```
+# ResetSensor.srv
+string sensor_id
+---
+bool success
+string message
+```
+
+Implement in sensor nodes to reset `base_temp`, `base_humidity`, etc.
+
+### 3. Log to File
+
+Add file logging in monitor node:
+
+```python
+import csv
+
+self.log_file = open('sensor_data.csv', 'w')
+self.csv_writer = csv.writer(self.log_file)
+self.csv_writer.writerow(['timestamp', 'sensor', 'value'])
+
+# In callbacks:
+self.csv_writer.writerow([time.time(), 'temperature', msg.temperature])
+```
+
+---
+
+## Rubric and Grading
+
+### Assessment Rubric (100 points)
+
+**Functionality (60 points)**:
+- ✅ 3 custom messages created and built (15 points)
+- ✅ Temperature sensor publishes at 1 Hz (10 points)
+- ✅ Humidity sensor publishes at 2 Hz (10 points)
+- ✅ Light sensor publishes at 5 Hz (10 points)
+- ✅ Monitor node receives all 3 sensor types (15 points)
+
+**Code Quality (20 points)**:
+- ✅ Proper Python style (PEP 8) (5 points)
+- ✅ Meaningful variable names (5 points)
+- ✅ Logging messages informative (5 points)
+- ✅ Error handling (try/except where needed) (5 points)
+
+**Verification (10 points)**:
+- ✅ `rqt_graph` screenshot showing system topology (5 points)
+- ✅ `ros2 topic hz` output showing correct rates (5 points)
+
+**Documentation (10 points)**:
+- ✅ README.md with setup instructions (5 points)
+- ✅ Comments in code explaining logic (5 points)
+
+**Bonus (10 points)**:
+- URDF visualization in RViz2 (5 points)
+- Service for sensor calibration (5 points)
+
+**Total**: 100 points (+ 10 bonus)
+
+---
+
+## Troubleshooting
+
+### Issue: Monitor not receiving messages
+
+**Debug**:
+```bash
+ros2 topic echo /sensors/temperature  # Verify publishing
+ros2 topic info /sensors/temperature  # Check pub/sub count
+```
+
+**Fix**: Ensure topic names match exactly (case-sensitive).
+
+### Issue: Import error for custom messages
+
+**Cause**: `custom_msgs` not built or workspace not sourced.
+
+**Fix**:
+```bash
+colcon build --packages-select custom_msgs
+source install/setup.bash
+```
+
+### Issue: Rates not matching specification
+
+**Debug**:
+```bash
+ros2 topic hz /sensors/humidity
+```
+
+**Fix**: Check timer period in `create_timer()`:
+- 1 Hz = 1.0 seconds
+- 2 Hz = 0.5 seconds
+- 5 Hz = 0.2 seconds
+
+---
+
+## Key Takeaways
+
+🎓 **Integration**: Combined publishers, subscribers, custom messages, and multi-node systems.
+
+🎓 **Real-world patterns**: Sensor data streaming is fundamental to robotics (cameras, LiDAR, IMU all follow this pattern).
+
+🎓 **Debugging**: Used `rqt_graph`, `ros2 topic echo/hz`, and node logs to verify system behavior.
+
+🎓 **Scalability**: Pub/sub pattern allows adding more sensors (pressure, CO2, motion) without changing monitor.
+
+🎓 **Module 1 mastery**: Demonstrated understanding of all core ROS 2 concepts.
+
+---
+
+## Congratulations! 🎉
+
+You've completed **Module 1: The Robotic Nervous System (ROS 2)**!
+
+You can now:
+- ✅ Create ROS 2 nodes with publishers and subscribers
+- ✅ Design custom message types for application-specific data
+- ✅ Build service servers and clients for request-response patterns
+- ✅ Model robots with URDF (links, joints, geometry)
+- ✅ Visualize robots in RViz2 and debug with TF trees
+- ✅ Build complete multi-node systems
+
+**You're ready for Module 2!**
+
+---
+
+## What's Next?
+
+In **Module 2: Gazebo Simulation**, you'll:
+
+- Simulate robots in physics-based environments
+- Add virtual sensors (cameras, LiDAR, IMU)
+- Test navigation algorithms in safe virtual worlds
+- Generate synthetic sensor data for AI training
+- Bridge Gazebo to ROS 2 with `ros_gz_bridge`
+
+**Continue to** → [Module 2: Gazebo Simulation](../../module-module-2/
+
+---
+
+## Additional Resources
+
+📚 **ROS 2 Projects**:
+- [Awesome ROS 2 Projects](https://github.com/fkromer/awesome-ros2)
+- [ROS 2 Examples Repository](https://github.com/ros2/examples)
+
+📺 **Capstone Inspiration**:
+- The Construct - ROS 2 Projects Series
+- Articulated Robotics - Real Robot Builds
+
+🛠️ **Next Steps**:
+- Add database storage (SQLite) for sensor history
+- Create web dashboard with Plotly/Dash
+- Implement alerting (email/SMS on threshold breach)
+- Add more sensor types (GPS, accelerometer, camera)
+
+---
+
+**Module 1 Status**: Complete ✅
+**Next Module**: [Module 2: Gazebo Simulation](../../module-module-2/
+
+</TabItem>
+
+<TabItem value="summary" label="Summary">
+
+## Quick Summary
+
+**Project Overview:**
+Build a complete sensor tower system demonstrating Module 1 mastery—custom messages, publishers, subscribers, multi-node communication, and visualization.
+
+**System Architecture:**
+- 3 sensor publisher nodes (temperature, humidity, light)
+- 1 monitor subscriber node (aggregates all sensor data)
+- Custom message types for each sensor
+- Real-time data streaming and visualization
+
+**Requirements Checklist:**
+
+**Phase 1: Custom Messages** ✅
+- [ ] Create `SensorReading.msg` with: `float32 value`, `string unit`, `int64 timestamp`, `string sensor_id`, `bool is_valid`
+- [ ] Build `custom_msgs` package and verify with `ros2 interface show`
+
+**Phase 2: Publisher Nodes** ✅
+- [ ] `temperature_publisher`: Publishes to `/sensors/temperature` at 2 Hz (range 20-30°C)
+- [ ] `humidity_publisher`: Publishes to `/sensors/humidity` at 2 Hz (range 40-80%)
+- [ ] `light_publisher`: Publishes to `/sensors/light` at 5 Hz (range 100-1000 lux)
+- [ ] All publishers use `SensorReading` message type with proper units and sensor_id
+
+**Phase 3: Monitor Node** ✅
+- [ ] Subscribes to all 3 sensor topics
+- [ ] Implements 3 callback functions (one per sensor)
+- [ ] Logs received data in format: `"[TEMP] 23.5°C from sensor_temp_01 at timestamp X"`
+- [ ] Tracks total messages received from each sensor
+
+**Phase 4: Verification** ✅
+- [ ] All 4 nodes run simultaneously without errors
+- [ ] `ros2 topic list` shows 3 sensor topics
+- [ ] `ros2 topic echo` displays messages for each topic
+- [ ] `ros2 topic hz` confirms correct publish rates (2 Hz for temp/humidity, 5 Hz for light)
+- [ ] `rqt_graph` shows 3 publishers → 3 topics → 1 monitor subscriber
+- [ ] Monitor logs display data from all sensors
+
+**Learning Outcomes Demonstrated:**
+✅ Custom message design and generation
+✅ Publisher node implementation with timers
+✅ Subscriber node with multiple callbacks
+✅ Multi-topic communication patterns
+✅ ROS 2 CLI debugging tools (topic list/echo/hz)
+✅ System visualization with rqt_graph
+
+**Common Issues:**
+- **Messages not received**: Check topic names match exactly (`/sensors/temperature` not `/temperature`)
+- **Wrong publish rate**: Verify timer period (2 Hz = 0.5s, 5 Hz = 0.2s)
+- **Missing dependencies**: Add `<depend>custom_msgs</depend>` to all node packages
+- **Build errors**: Run `colcon build` for both `custom_msgs` and node packages
+
+**Extension Ideas (Optional):**
+1. Add data validation (reject out-of-range values, mark `is_valid=false`)
+2. Implement statistics node calculating min/max/avg for each sensor over 10s window
+3. Add alarm node that publishes warning when temperature > 28°C
+4. Create launch file starting all 4 nodes with one command
+5. Visualize sensor data with plotjuggler or custom RViz2 displays
+
+**Success Criteria:**
+- All nodes run without crashes for 60+ seconds
+- Monitor displays data from all 3 sensors correctly
+- rqt_graph shows proper connections
+- Topic rates match specifications (±10%)
+
+**Module 1 Complete!** You've mastered ROS 2 fundamentals: nodes, topics, messages, services, URDF, RViz2. Ready for Module 2 (Gazebo Simulation)!
+
+**Quick Check:**
+- [ ] Have you created custom messages for sensor data?
+- [ ] Have you implemented 3 publisher nodes with different rates?
+- [ ] Have you created a monitor subscribing to all topics?
+- [ ] Have you verified the system with ros2 CLI tools and rqt_graph?
+
+**Prerequisites for Module 2:** Completed sensor tower project, understanding of multi-node systems, proficiency with ROS 2 CLI tools, ready to learn physics simulation in Gazebo.
+
+</TabItem>
+
+</Tabs>

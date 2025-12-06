@@ -1,0 +1,425 @@
+openapi: 3.1.0
+info:
+  title: RAG Chatbot API
+  description: REST API for the Physical AI Book RAG chatbot system
+  version: 1.0.0
+  contact:
+    name: Physical AI Book Team
+    url: https://github.com/Muhammad-Aneeq/Physical-AI-Humanoid-Robotics-Book
+
+servers:
+  - url: https://rag-chatbot-api.onrender.com
+    description: Production server (Render)
+  - url: http://localhost:8000
+    description: Local development server
+
+tags:
+  - name: chat
+    description: Chat interaction endpoints
+  - name: health
+    description: Health check and monitoring
+
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      description: Returns API health status and version information
+      tags:
+        - health
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2025-12-03T14:30:00Z"
+
+  /api/chat:
+    post:
+      summary: Send chat query
+      description: Submit a question to the chatbot and receive a response with citations
+      tags:
+        - chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatQueryRequest'
+            examples:
+              full_book_mode:
+                summary: Full book query
+                value:
+                  query_text: "How do I create a custom ROS 2 message?"
+                  mode: "full_book"
+                  session_id: "550e8400-e29b-41d4-a716-446655440000"
+              selection_mode:
+                summary: Selection mode query
+                value:
+                  query_text: "Explain this code"
+                  mode: "selection"
+                  selected_text: "def my_function():\n    pass"
+                  session_id: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          description: Bad request (validation error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Validation Error"
+                detail: "selected_text required for selection mode"
+        '429':
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until rate limit resets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Rate Limit Exceeded"
+                detail: "Too many requests. Try again in 60 seconds."
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/chat/selection:
+    post:
+      summary: Send selection-mode query (convenience endpoint)
+      description: Simplified endpoint for selection mode queries
+      tags:
+        - chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query_text
+                - selected_text
+              properties:
+                query_text:
+                  type: string
+                  minLength: 1
+                  maxLength: 1000
+                  example: "Explain this code"
+                selected_text:
+                  type: string
+                  minLength: 1
+                  maxLength: 5000
+                  example: "def my_function():\n    pass"
+                session_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/feedback:
+    post:
+      summary: Submit feedback
+      description: Provide thumbs up/down rating and optional text feedback for a response
+      tags:
+        - chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackRequest'
+      responses:
+        '201':
+          description: Feedback recorded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feedback_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+                    example: "Feedback recorded successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Conflict (feedback already exists for this response)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Conflict"
+                detail: "Feedback already submitted for this response"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/session:
+    post:
+      summary: Create new chat session
+      description: Initialize a new chat session and receive a session ID
+      tags:
+        - chat
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_identifier:
+                  type: string
+                  nullable: true
+                  example: "anonymous-user-123"
+      responses:
+        '201':
+          description: Session created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: string
+                    format: uuid
+                    example: "550e8400-e29b-41d4-a716-446655440000"
+                  created_at:
+                    type: string
+                    format: date-time
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /ws/chat:
+    get:
+      summary: WebSocket chat endpoint
+      description: Establish WebSocket connection for streaming chat responses
+      tags:
+        - chat
+      parameters:
+        - name: session_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '101':
+          description: Switching Protocols (WebSocket established)
+        '400':
+          description: Bad request (invalid session_id)
+
+components:
+  schemas:
+    ChatQueryRequest:
+      type: object
+      required:
+        - query_text
+        - mode
+      properties:
+        query_text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: The user's question
+          example: "How do I create a custom ROS 2 message?"
+        mode:
+          type: string
+          enum: [full_book, selection]
+          description: Query mode (full_book or selection)
+          example: "full_book"
+        selected_text:
+          type: string
+          nullable: true
+          minLength: 1
+          maxLength: 5000
+          description: Selected text (required if mode=selection)
+          example: null
+        session_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Existing session ID (if continuing conversation)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    ChatResponse:
+      type: object
+      required:
+        - response_id
+        - response_text
+        - source_chunks
+        - response_time_ms
+      properties:
+        response_id:
+          type: string
+          format: uuid
+          example: "770e8400-e29b-41d4-a716-446655440002"
+        response_text:
+          type: string
+          description: The chatbot's answer in markdown format
+          example: "To create a custom ROS 2 message, you need to..."
+        source_chunks:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceChunk'
+          description: List of book chunks used to generate the response
+        response_time_ms:
+          type: integer
+          description: Time taken to generate response (milliseconds)
+          example: 1850
+        session_id:
+          type: string
+          format: uuid
+          description: Session ID (for continuing conversation)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    SourceChunk:
+      type: object
+      required:
+        - chunk_id
+        - module_number
+        - chapter_number
+        - section_title
+        - url
+        - score
+      properties:
+        chunk_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        module_number:
+          type: integer
+          example: 1
+        chapter_number:
+          type: integer
+          example: 2
+        section_title:
+          type: string
+          example: "Your First ROS 2 Node - Publishers & Subscribers"
+        url:
+          type: string
+          format: uri
+          example: "https://muhammad-aneeq.github.io/Physical-AI-Humanoid-Robotics-Book/docs/module-1/chapter-1-2-pubsub"
+        score:
+          type: number
+          format: float
+          description: Semantic similarity score (0.0-1.0)
+          example: 0.89
+
+    FeedbackRequest:
+      type: object
+      required:
+        - response_id
+        - rating
+      properties:
+        response_id:
+          type: string
+          format: uuid
+          description: ID of the response being rated
+          example: "770e8400-e29b-41d4-a716-446655440002"
+        rating:
+          type: string
+          enum: [positive, negative]
+          description: Thumbs up (positive) or thumbs down (negative)
+          example: "positive"
+        feedback_text:
+          type: string
+          nullable: true
+          maxLength: 1000
+          description: Optional text feedback (usually provided with negative ratings)
+          example: "This answer was very helpful!"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - detail
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "Validation Error"
+        detail:
+          type: string
+          description: Detailed error message
+          example: "selected_text required for selection mode"
+
+  responses:
+    BadRequest:
+      description: Bad request (validation error)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    RateLimitExceeded:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until rate limit resets
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Rate Limit Exceeded"
+            detail: "Too many requests. Try again in 60 seconds."
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Internal Server Error"
+            detail: "An unexpected error occurred. Please try again later."
+
+  securitySchemes:
+    # Future: Add API key authentication if needed
+    # ApiKeyAuth:
+    #   type: apiKey
+    #   in: header
+    #   name: X-API-Key
+
+# No security required for MVP (public API with rate limiting)
+security: []

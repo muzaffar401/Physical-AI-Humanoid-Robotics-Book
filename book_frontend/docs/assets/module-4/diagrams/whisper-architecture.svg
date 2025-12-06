@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 500" role="img" aria-labelledby="whisper-arch-title whisper-arch-desc">
+  <title id="whisper-arch-title">Whisper Architecture</title>
+  <desc id="whisper-arch-desc">Diagram showing Whisper's encoder-decoder Transformer architecture: audio waveform to mel spectrogram to encoder to decoder to text output</desc>
+
+  <defs>
+    <style>
+      .box { fill: #E3F2FD; stroke: #1976D2; stroke-width: 2; }
+      .box-encoder { fill: #E8F5E9; stroke: #388E3C; stroke-width: 2; }
+      .box-decoder { fill: #FFF3E0; stroke: #F57C00; stroke-width: 2; }
+      .title { font-family: Arial, sans-serif; font-size: 18px; font-weight: bold; fill: #333; }
+      .label { font-family: Arial, sans-serif; font-size: 14px; fill: #333; text-anchor: middle; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 11px; fill: #666; text-anchor: middle; }
+      .arrow { stroke: #555; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .stage { font-family: Arial, sans-serif; font-size: 12px; font-weight: bold; fill: #1976D2; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#555" />
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="350" y="30" text-anchor="middle" class="title">Whisper Encoder-Decoder Architecture</text>
+
+  <!-- Input: Audio Waveform -->
+  <rect x="50" y="60" width="150" height="80" class="box" rx="5"/>
+  <text x="125" y="90" class="label">🎵 Audio Input</text>
+  <text x="125" y="110" class="subtitle">Waveform</text>
+  <text x="125" y="125" class="subtitle">(16kHz, mono)</text>
+
+  <path d="M 125 140 L 125 180" class="arrow"/>
+
+  <!-- Preprocessing: Mel Spectrogram -->
+  <rect x="50" y="180" width="150" height="80" class="box" rx="5"/>
+  <text x="125" y="205" class="label">Preprocessing</text>
+  <text x="125" y="225" class="subtitle">Mel Spectrogram</text>
+  <text x="125" y="240" class="subtitle">(80 mel bins)</text>
+
+  <path d="M 200 220 L 250 220" class="arrow"/>
+
+  <!-- Encoder -->
+  <rect x="250" y="150" width="200" height="140" class="box-encoder" rx="5"/>
+  <text x="350" y="175" class="label">🔹 Encoder</text>
+  <text x="350" y="195" class="subtitle">(Transformer Layers)</text>
+
+  <!-- Encoder internals -->
+  <rect x="270" y="210" width="160" height="25" fill="#C8E6C9" stroke="none" rx="3"/>
+  <text x="350" y="227" class="subtitle">Multi-Head Attention</text>
+
+  <rect x="270" y="240" width="160" height="25" fill="#C8E6C9" stroke="none" rx="3"/>
+  <text x="350" y="257" class="subtitle">Feed-Forward Network</text>
+
+  <text x="350" y="280" class="subtitle">× N layers (e.g., 12 for base)</text>
+
+  <path d="M 450 220 L 500 220" class="arrow"/>
+
+  <!-- Decoder -->
+  <rect x="500" y="150" width="150" height="140" class="box-decoder" rx="5"/>
+  <text x="575" y="175" class="label">🔸 Decoder</text>
+  <text x="575" y="195" class="subtitle">(Transformer)</text>
+
+  <!-- Decoder internals -->
+  <rect x="515" y="210" width="120" height="20" fill="#FFE0B2" stroke="none" rx="3"/>
+  <text x="575" y="224" class="subtitle">Attention</text>
+
+  <rect x="515" y="235" width="120" height="20" fill="#FFE0B2" stroke="none" rx="3"/>
+  <text x="575" y="249" class="subtitle">Cross-Attention</text>
+
+  <rect x="515" y="260" width="120" height="20" fill="#FFE0B2" stroke="none" rx="3"/>
+  <text x="575" y="274" class="subtitle">FFN</text>
+
+  <path d="M 575 290 L 575 330" class="arrow"/>
+
+  <!-- Output: Text -->
+  <rect x="500" y="330" width="150" height="80" class="box" rx="5"/>
+  <text x="575" y="360" class="label">📝 Text Output</text>
+  <text x="575" y="380" class="subtitle">Autoregressive</text>
+  <text x="575" y="395" class="subtitle">Token-by-token</text>
+
+  <!-- Info box -->
+  <rect x="50" y="320" width="380" height="140" fill="#F5F5F5" stroke="#999" stroke-width="1" rx="5"/>
+  <text x="60" y="340" class="stage">Key Features:</text>
+
+  <text x="60" y="360" class="subtitle">• End-to-end learning (no phoneme intermediate)</text>
+  <text x="60" y="378" class="subtitle">• Multilingual (99 languages, single model)</text>
+  <text x="60" y="396" class="subtitle">• Robust to noise, accents, dialects</text>
+  <text x="60" y="414" class="subtitle">• Trained on 680,000 hours of web data</text>
+  <text x="60" y="432" class="subtitle">• Model sizes: tiny (39M) → large (1.5B params)</text>
+  <text x="60" y="450" class="subtitle">• Open-source (can run locally or via API)</text>
+
+  <!-- Bottom caption -->
+  <text x="350" y="490" text-anchor="middle" class="subtitle">
+    Whisper processes audio spectrograms with encoder, decoder generates text autoregressively
+  </text>
+
+</svg>

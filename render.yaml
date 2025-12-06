@@ -1,0 +1,65 @@
+# render.yaml - Render Blueprint (free tier uses v1)
+services:
+  - type: web
+    name: rag-chatbot-api
+    env: python
+    region: oregon
+    plan: free
+    branch: master
+    rootDir: backend
+
+    # Optimized build for PyTorch CPU-only
+    buildCommand: pip install --upgrade pip && pip install torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt
+
+    # Extended timeout for model loading on first start
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 300
+
+    # Health check
+    healthCheckPath: /
+
+    envVars:
+      # OpenAI Configuration
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_CHAT_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_TEMPERATURE
+        value: "0.3"
+      - key: OPENAI_MAX_TOKENS
+        value: "1000"
+
+      # Embedding Model Configuration
+      - key: EMBEDDING_MODEL_NAME
+        value: BAAI/bge-base-en-v1.5
+      - key: EMBEDDING_DEVICE
+        value: cpu
+      - key: EMBEDDING_BATCH_SIZE
+        value: "16"
+
+      # Qdrant Configuration
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: QDRANT_COLLECTION_NAME
+        value: book_content
+      - key: QDRANT_VECTOR_SIZE
+        value: "768"
+
+      # Database
+      - key: DATABASE_URL
+        sync: false
+
+      # Application Configuration
+      - key: ENVIRONMENT
+        value: production
+      - key: CORS_ORIGINS
+        value: http://localhost:3000,https://muzaffar401.github.io
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "10"
+      - key: LOG_LEVEL
+        value: INFO
+
+      # Performance optimization for free tier
+      - key: OMP_NUM_THREADS
+        value: "1"

@@ -1,0 +1,693 @@
+---
+id: chapter-1-6-rviz
+title: "Chapter 1.6: Visualizing Robots in RViz2"
+sidebar_label: "1.6 RViz2"
+sidebar_position: 6
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs defaultValue="content" groupId="chapter-view">
+
+<TabItem value="content" label="Content" default>
+
+# Chapter 1.6: Visualizing Robots in RViz2
+
+## Seeing Your Robot Come to Life
+
+You've created URDF files describing robots with links and joints. But how do you **see** if they're correct? How do you debug coordinate frames, joint limits, and transforms?
+
+**RViz2** (ROS Visualization 2) is a 3D visualization tool that renders robot models, sensor data, transforms, and more—essential for debugging and developing robotics systems.
+
+In this chapter, you'll load URDFs in RViz2, animate joints, inspect transform trees, and verify your robot models are correct.
+
+---
+
+## Learning Objectives
+
+By the end of this chapter, you will:
+
+- **Apply**: Load URDF in RViz2 using `robot_state_publisher` and visualize robot model
+- **Apply**: Configure RViz2 displays (RobotModel, TF, Grid, Axes) for clear visualization
+- **Analyze**: Inspect TF tree to verify correct link parent-child relationships
+- **Create**: Publish joint states using `joint_state_publisher_gui` to animate robot
+
+**Estimated Time**: 1.5 hours
+
+---
+
+## Prerequisites
+
+- **Chapter 1.5 complete** (URDF creation)
+- **URDF files**: `simple_robot.urdf`, `robotic_arm.urdf`, `humanoid.urdf`
+- **RViz2 installed** (comes with `ros-humble-desktop`)
+
+---
+
+## What You'll Build
+
+By the end of this chapter, you'll have:
+
+✅ **RViz2 configuration** to visualize robot models
+✅ **Animated robotic arm** with controllable joints
+✅ **TF tree** understanding for debugging transforms
+✅ **Launch file** to start RViz2 with robot automatically
+
+---
+
+## What is RViz2?
+
+**RViz2** is a 3D visualization tool for ROS 2. It displays:
+
+- **Robot models** (from URDF)
+- **Sensor data** (cameras, LiDAR, point clouds)
+- **Transforms** (TF tree, coordinate frames)
+- **Navigation** (maps, paths, goals)
+- **Markers** (custom shapes, annotations)
+
+**Use cases**:
+- **Debugging**: Verify URDF, check sensor placement, inspect transforms
+- **Development**: Test algorithms before hardware deployment
+- **Demonstrations**: Visualize robot behavior for presentations
+
+**RViz2 vs RViz (ROS 1)**:
+- Same core functionality
+- Better performance (OpenGL optimizations)
+- ROS 2 integration (DDS topics, QoS)
+
+---
+
+## RViz2 Interface Tour
+
+### Main Components
+
+When you launch RViz2 (`rviz2`), you see:
+
+**1. 3D Viewport** (center): Rendered scene with robot, sensor data, etc.
+   - **Camera controls**: Left-click rotate, middle-click pan, scroll zoom
+   - **Orbit mode** (default): Rotate around focal point
+   - **FPS mode**: Hold Shift + WASD to fly around
+
+**2. Displays Panel** (left): List of active visualizations
+   - Toggle on/off with checkboxes
+   - Expand to configure properties
+   - Common displays: RobotModel, TF, LaserScan, Image
+
+**3. Views Panel** (left, bottom): Camera configuration
+   - Orbital camera: Set focal point, distance
+   - XY Plane, Top Down, etc.
+
+**4. Tool Properties** (left, bottom): Active tool settings
+
+**5. Time Panel** (bottom): Current ROS time, system time
+
+**6. Menu Bar** (top): File, Panels, View (save/load configurations)
+
+---
+
+## Publishing Robot State
+
+RViz2 needs two pieces of information to render a robot:
+
+1. **URDF** (robot description) → Defines geometry, links, joints
+2. **Joint states** (current joint angles) → Defines robot pose
+
+### robot_state_publisher
+
+The **`robot_state_publisher`** node:
+- Reads URDF from parameter `/robot_description`
+- Subscribes to `/joint_states` topic
+- Publishes **TF transforms** for all links
+
+**Workflow**:
+```
+URDF → robot_state_publisher → TF transforms → RViz2
+                ↑
+        /joint_states (current angles)
+```
+
+---
+
+## Hands-On: Visualizing Robotic Arm
+
+Let's visualize the `robotic_arm.urdf` from Chapter 1.5.
+
+### Step 1: Create Package for Robot Description
+
+```bash
+cd ~/ros2_ws/src
+ros2 pkg create --build-type ament_cmake my_robot_description
+cd my_robot_description
+mkdir urdf launch rviz
+```
+
+Copy your URDF:
+
+```bash
+cp ~/robotic_arm.urdf ~/ros2_ws/src/my_robot_description/urdf/
+```
+
+### Step 2: Create Launch File
+
+Create `launch/display.launch.py`:
+
+```python
+import os
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration, Command
+from ament_index_python.packages import get_package_share_directory
+
+
+def generate_launch_description():
+    # Get package directory
+    pkg_dir = get_package_share_directory('my_robot_description')
+    urdf_file = os.path.join(pkg_dir, 'urdf', 'robotic_arm.urdf')
+    rviz_config_file = os.path.join(pkg_dir, 'rviz', 'robot.rviz')
+
+    # Read URDF content
+    with open(urdf_file, 'r') as file:
+        robot_description_content = file.read()
+
+    return LaunchDescription([
+        # Declare robot_description parameter
+        Node(
+            package='robot_state_publisher',
+            executable='robot_state_publisher',
+            name='robot_state_publisher',
+            output='screen',
+            parameters=[{'robot_description': robot_description_content}]
+        ),
+
+        # Joint state publisher GUI (to control joints)
+        Node(
+            package='joint_state_publisher_gui',
+            executable='joint_state_publisher_gui',
+            name='joint_state_publisher_gui',
+            output='screen'
+        ),
+
+        # RViz2
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            output='screen',
+            arguments=['-d', rviz_config_file] if os.path.exists(rviz_config_file) else []
+        )
+    ])
+```
+
+**Nodes launched**:
+1. **robot_state_publisher**: Publishes TF from URDF
+2. **joint_state_publisher_gui**: GUI to control joint angles
+3. **rviz2**: 3D visualization
+
+### Step 3: Update CMakeLists.txt
+
+Edit `CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.8)
+project(my_robot_description)
+
+find_package(ament_cmake REQUIRED)
+
+# Install URDF, launch, rviz directories
+install(DIRECTORY
+  urdf
+  launch
+  rviz
+  DESTINATION share/${PROJECT_NAME}
+)
+
+ament_package()
+```
+
+### Step 4: Update package.xml
+
+Add dependencies:
+
+```xml
+<exec_depend>robot_state_publisher</exec_depend>
+<exec_depend>joint_state_publisher_gui</exec_depend>
+<exec_depend>rviz2</exec_depend>
+```
+
+### Step 5: Build and Launch
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select my_robot_description
+source install/setup.bash
+
+ros2 launch my_robot_description display.launch.py
+```
+
+**What launches**:
+- Joint State Publisher GUI (sliders for joints)
+- RViz2 window (empty initially)
+
+---
+
+## Configuring RViz2 Displays
+
+### Add RobotModel Display
+
+1. In RViz2, click **Add** button (bottom of Displays panel)
+2. Select **RobotModel** → **OK**
+3. Expand **RobotModel** in Displays
+4. Set **Description Topic** to `/robot_description`
+5. Robot should appear!
+
+**If robot doesn't appear**:
+- Check **Fixed Frame** (top of Displays) is set to `base_link` or root link
+- Verify `robot_state_publisher` is running: `ros2 node list`
+
+### Add TF Display
+
+1. **Add** → **TF**
+2. You'll see coordinate frames (red/green/blue axes) for each link
+3. **Properties**:
+   - **Show Names**: Display frame names
+   - **Show Axes**: Display RGB axes (X=red, Y=green, Z=blue)
+   - **Marker Scale**: Increase to see axes better (try 0.3)
+
+### Add Grid
+
+1. **Add** → **Grid**
+2. Shows ground plane reference
+3. **Properties**:
+   - **Plane Cell Count**: Number of grid cells (default 10)
+   - **Color**: Grid line color
+
+---
+
+## Animating with Joint State Publisher GUI
+
+The **Joint State Publisher GUI** window shows sliders for each joint.
+
+**Try this**:
+1. Move **shoulder_joint** slider → Arm rotates
+2. Move **elbow_joint** slider → Forearm bends
+3. Watch TF frames update in RViz2
+
+**How it works**:
+- GUI publishes to `/joint_states` topic
+- `robot_state_publisher` reads joint states
+- Computes forward kinematics (TF transforms)
+- RViz2 renders updated robot pose
+
+---
+
+## Understanding TF Tree
+
+### What is TF?
+
+**TF (Transform)** is ROS 2's system for tracking coordinate frames over time.
+
+Every link in URDF becomes a **TF frame**. Transforms define:
+- **Position**: (x, y, z) relative to parent
+- **Orientation**: (quaternion) relative to parent
+
+### View TF Tree
+
+```bash
+# Install tools
+sudo apt install ros-humble-tf2-tools
+
+# View tree (text format)
+ros2 run tf2_tools view_frames
+
+# This creates 'frames.pdf' with graphical tree
+```
+
+**Example output**:
+```
+base_link
+  └─ link1
+      └─ link2
+```
+
+**In RViz2**:
+- Enable **TF** display
+- Each frame shows RGB axes (X=red, Y=green, Z=up)
+- Parent-child relationships visible
+
+### Debug TF Issues
+
+**List all frames**:
+```bash
+ros2 run tf2_ros tf2_echo base_link link2
+```
+
+**Output**: Transform from `base_link` to `link2` (position + rotation).
+
+**Common issues**:
+- **No transform**: Link not connected in URDF
+- **Wrong orientation**: Check `rpy` in joint `<origin>`
+- **Offset position**: Check `xyz` in joint `<origin>`
+
+---
+
+## Saving RViz2 Configuration
+
+**Problem**: Every time you launch RViz2, must re-add displays.
+
+**Solution**: Save configuration file.
+
+1. Configure RViz2 (add RobotModel, TF, Grid)
+2. **File** → **Save Config As...**
+3. Save to `my_robot_description/rviz/robot.rviz`
+
+Next launch, RViz2 loads this config automatically (see launch file).
+
+---
+
+## Visualizing Humanoid
+
+Let's visualize the humanoid from Chapter 1.5.
+
+### Step 1: Copy URDF
+
+```bash
+cp ~/humanoid.urdf ~/ros2_ws/src/my_robot_description/urdf/
+```
+
+### Step 2: Create New Launch File
+
+Create `launch/humanoid.launch.py` (copy `display.launch.py`, change `urdf_file`):
+
+```python
+urdf_file = os.path.join(pkg_dir, 'urdf', 'humanoid.urdf')
+```
+
+### Step 3: Build and Launch
+
+```bash
+colcon build --packages-select my_robot_description
+source install/setup.bash
+
+ros2 launch my_robot_description humanoid.launch.py
+```
+
+**Expected**:
+- White torso
+- Skin-colored head (sphere)
+- Two arms (cylinders) hanging down
+
+**Try moving joints**:
+- **left_shoulder_joint**: Raise left arm
+- **left_elbow_joint**: Bend left forearm
+- **right_shoulder_joint**: Raise right arm
+
+---
+
+## RViz2 Camera Controls
+
+### Orbital Camera (Default)
+
+- **Left-click + drag**: Rotate around focal point
+- **Middle-click + drag**: Pan (move focal point)
+- **Scroll**: Zoom in/out
+- **Shift + Left-click**: Zoom (alternative to scroll)
+
+### FPS Camera
+
+1. In **Views** panel (left, bottom), change **Type** to **FPS**
+2. **Shift + WASD**: Fly around (W=forward, S=backward, A=left, D=right)
+3. **Mouse**: Look around
+
+### Reset View
+
+**Views → Zero**: Resets camera to default position.
+
+---
+
+## Advanced: Loading Mesh Files
+
+URDFs can use **3D meshes** (STL, DAE, OBJ) for visual appearance.
+
+### Example: Arm with Mesh
+
+```xml
+<visual>
+  <geometry>
+    <mesh filename="package://my_robot_description/meshes/arm.stl" scale="1 1 1"/>
+  </geometry>
+</visual>
+```
+
+**URI format**: `package://<package_name>/path/to/file.stl`
+
+**Workflow**:
+1. Create `meshes/` directory in package
+2. Place `.stl` files there
+3. Reference with `package://` URI
+4. Install in `CMakeLists.txt`:
+   ```cmake
+   install(DIRECTORY meshes DESTINATION share/${PROJECT_NAME})
+   ```
+
+**For this chapter**: Use primitive shapes (box, cylinder, sphere).
+
+---
+
+## Common Issues and Fixes
+
+### Issue: "No transform from [fixed frame] to [link]"
+
+**Cause**: `robot_state_publisher` not running or URDF not loaded.
+
+**Fix**:
+```bash
+ros2 node list  # Check robot_state_publisher is running
+ros2 topic echo /robot_description  # Verify URDF loaded
+```
+
+### Issue: Robot appears at origin but joints don't move
+
+**Cause**: `joint_state_publisher_gui` not publishing.
+
+**Fix**: Check GUI window is open and sliders are moving. Verify `/joint_states` topic:
+```bash
+ros2 topic echo /joint_states
+```
+
+### Issue: TF frames show but no robot model
+
+**Cause**: RobotModel display not configured.
+
+**Fix**:
+1. Expand RobotModel display
+2. Set **Description Topic** to `/robot_description`
+3. Set **TF Prefix** to empty (if it has a value)
+
+### Issue: Robot is invisible/transparent
+
+**Cause**: No visual geometry or material defined.
+
+**Fix**: Check URDF has `<visual><geometry>` and `<material><color>`.
+
+---
+
+## Key Takeaways
+
+🎓 **RViz2** is ROS 2's 3D visualization tool for robot models, sensor data, and transforms.
+
+🎓 **robot_state_publisher** converts URDF + joint states → TF transforms for visualization.
+
+🎓 **joint_state_publisher_gui** provides sliders to control joint angles interactively.
+
+🎓 **TF tree** shows coordinate frame relationships—use `tf2_echo` and `view_frames` for debugging.
+
+🎓 **RViz config files** (`.rviz`) save display settings for reuse across sessions.
+
+🎓 **Displays**: RobotModel (robot), TF (frames), Grid (reference), LaserScan, Image, etc.
+
+---
+
+## What's Next?
+
+You've visualized robots in RViz2—now it's time to **put it all together**!
+
+In **Chapter 1.7: Module 1 Mini-Project**, you'll:
+
+- Build a complete sensor tower system
+- Create custom messages for temperature, humidity, and light sensors
+- Implement publisher nodes for each sensor
+- Create monitor node subscribing to all topics
+- Visualize system with rqt_graph and RViz2
+
+**Continue to** → [Chapter 1.7: Mini-Project](./chapter-1-7-mini-project)
+
+---
+
+## Assessment: Animate Humanoid
+
+**Goal**: Visualize and animate your humanoid model from Chapter 1.5.
+
+**Tasks**:
+
+1. **Load humanoid URDF** in RViz2 using launch file
+
+2. **Configure RViz2**:
+   - Add RobotModel display
+   - Add TF display with frame names
+   - Add Grid
+   - Set background color to light gray
+
+3. **Animate robot**:
+   - Use joint_state_publisher_gui to pose robot
+   - Raise both arms to shoulder level
+   - Bend elbows to 90°
+
+4. **Inspect TF tree**:
+   - Run `ros2 run tf2_tools view_frames`
+   - Open `frames.pdf`
+   - Verify all links connected correctly
+
+5. **Save configuration**: Save RViz config as `humanoid.rviz`
+
+6. **Take screenshot**: Show RViz2 with posed humanoid + TF frames visible
+
+**Expected Pass Rate**: 75% of learners complete within 40 minutes.
+
+**Bonus**: Add legs to humanoid URDF (thighs, shins, feet) and visualize in RViz2.
+
+---
+
+## Additional Resources
+
+📚 **Official Documentation**:
+- [RViz2 User Guide](https://github.com/ros2/rviz/blob/humble/docs/index.rst)
+- [Understanding robot_state_publisher](https://docs.ros.org/en/humble/Tutorials/Intermediate/URDF/Using-URDF-with-Robot-State-Publisher.html)
+- [joint_state_publisher](https://github.com/ros/joint_state_publisher)
+
+📺 **Video Tutorials**:
+- The Construct - RViz2 Essentials
+- Articulated Robotics - Visualizing Your Robot
+
+🛠️ **Tools**:
+- [tf2_tools](https://github.com/ros2/geometry2/tree/humble/tf2_tools) - TF debugging
+- [rqt_tf_tree](http://wiki.ros.org/rqt_tf_tree) - Interactive TF tree viewer
+
+📦 **Example Configurations**:
+- [TurtleBot3 RViz Configs](https://github.com/ROBOTIS-GIT/turtlebot3/tree/humble-devel/turtlebot3_description/rviz)
+- [Franka RViz Configs](https://github.com/frankaemika/franka_ros/tree/develop/franka_description/rviz)
+
+---
+
+**Chapter Status**: Complete ✅
+**Next Chapter**: [1.7 Mini-Project](./chapter-1-7-mini-project)
+
+</TabItem>
+
+<TabItem value="summary" label="Summary">
+
+## Quick Summary
+
+**Learning Objectives Recap:**
+- Load URDF in RViz2 using robot_state_publisher and visualize robot model
+- Configure RViz2 displays (RobotModel, TF, Grid, Axes)
+- Inspect TF tree to verify link parent-child relationships
+- Publish joint states using joint_state_publisher_gui to animate robot
+
+**Core Concepts:**
+
+**RViz2** is ROS 2's 3D visualization tool for debugging and developing robotics systems. Displays robot models (from URDF), sensor data (cameras, LiDAR, point clouds), transforms (TF tree), navigation (maps, paths), and custom markers.
+
+**RViz2 needs two inputs to render robots:**
+1. **URDF** (robot description) → Defines geometry, links, joints
+2. **Joint states** (current angles) → Defines robot pose at any moment
+
+**robot_state_publisher** node reads URDF from `/robot_description` parameter, subscribes to `/joint_states` topic, and publishes TF transforms for all links. This enables RViz2 and other nodes to know where every robot part is located in 3D space.
+
+**Workflow:**
+```
+URDF + /joint_states → robot_state_publisher → TF transforms → RViz2 visualization
+```
+
+**Key RViz2 Displays:**
+- **RobotModel**: Renders robot from URDF with textures and colors
+- **TF**: Shows coordinate frames (RGB axes: X=red, Y=green, Z=blue) for each link
+- **Grid**: Ground plane reference for spatial context
+- **LaserScan**: LiDAR data visualization (for Module 2)
+- **Image**: Camera feed display (for Module 2)
+
+**Launch File for Visualization:**
+
+```python
+from launch import LaunchDescription
+from launch_ros.actions import Node
+import os
+from ament_index_python.packages import get_package_share_directory
+
+def generate_launch_description():
+    pkg_dir = get_package_share_directory('my_robot_description')
+    urdf_file = os.path.join(pkg_dir, 'urdf', 'robotic_arm.urdf')
+
+    with open(urdf_file, 'r') as file:
+        robot_description = file.read()
+
+    return LaunchDescription([
+        # Publishes TF from URDF + joint states
+        Node(
+            package='robot_state_publisher',
+            executable='robot_state_publisher',
+            parameters=[{'robot_description': robot_description}]
+        ),
+
+        # GUI to control joint angles with sliders
+        Node(
+            package='joint_state_publisher_gui',
+            executable='joint_state_publisher_gui'
+        ),
+
+        # 3D visualization
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            arguments=['-d', 'config/robot.rviz']
+        )
+    ])
+```
+
+**joint_state_publisher_gui** provides sliders for each joint. Moving sliders publishes to `/joint_states` → robot_state_publisher computes forward kinematics → RViz2 renders updated pose. Essential for testing joint limits and debugging URDF.
+
+**TF (Transform) System** tracks coordinate frames over time. Every URDF link becomes a TF frame. Transforms define position (x, y, z) and orientation (quaternion) relative to parent. Critical for sensor fusion, motion planning, and navigation.
+
+**Essential Commands:**
+```bash
+# View TF tree (creates frames.pdf diagram)
+ros2 run tf2_tools view_frames
+
+# Check transform between two frames
+ros2 run tf2_ros tf2_echo base_link link2
+
+# Save RViz2 configuration
+File → Save Config As... → robot.rviz
+```
+
+**RViz2 Camera Controls:**
+- **Orbital** (default): Left-drag rotate, middle-drag pan, scroll zoom
+- **FPS mode**: Shift + WASD to fly, mouse to look around
+
+**Troubleshooting:**
+- **"No transform from [fixed frame]"**: robot_state_publisher not running or URDF not loaded
+- **Robot doesn't appear**: Set RobotModel Description Topic to `/robot_description`
+- **Joints don't move**: Check joint_state_publisher_gui is publishing to `/joint_states`
+
+**Quick Check:**
+- [ ] Can you launch RViz2 with robot_state_publisher and joint_state_publisher_gui?
+- [ ] Can you add and configure RobotModel, TF, and Grid displays?
+- [ ] Can you use joint_state_publisher_gui to animate robot joints?
+- [ ] Can you inspect TF tree with view_frames to verify link relationships?
+
+**Prerequisites for Next Chapter:** RViz2 configured with robot model, understanding of TF transforms, ability to visualize and animate robots, ready for Module 1 mini-project integration.
+
+</TabItem>
+
+</Tabs>

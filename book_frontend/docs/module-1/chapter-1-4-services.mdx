@@ -1,0 +1,901 @@
+---
+id: chapter-1-4-services
+title: "Chapter 1.4: Services and Request-Response Patterns"
+sidebar_label: "1.4 Services"
+sidebar_position: 4
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs defaultValue="content" groupId="chapter-view">
+
+<TabItem value="content" label="Content" default>
+
+# Chapter 1.4: Services and Request-Response Patterns
+
+## When Topics Aren't Enough
+
+You've mastered **topics** for continuous data streams—camera images flowing at 30 Hz, LiDAR scans at 10 Hz. But what about one-time operations?
+
+- "What's the robot's battery level?" → Need a response
+- "Reset odometry to zero" → Need confirmation it happened
+- "Calculate inverse kinematics for this pose" → Need computed result
+
+For these **request-response** scenarios, ROS 2 provides **services**—synchronous, blocking communication where a client asks and a server answers.
+
+---
+
+## Learning Objectives
+
+By the end of this chapter, you will:
+
+- **Understand**: Compare topics vs services (asynchronous vs synchronous, many-to-many vs one-to-one)
+- **Apply**: Create service server that responds to client requests with custom .srv type
+- **Apply**: Call services from Python client node and CLI using `ros2 service call`
+- **Analyze**: Evaluate scenarios to determine when to use topics vs services
+
+**Estimated Time**: 2 hours
+
+---
+
+## Prerequisites
+
+- **Chapters 1.2-1.3 complete** (Publishers/Subscribers, Custom Messages)
+- **Understanding of blocking vs non-blocking code**
+
+---
+
+## What You'll Build
+
+By the end of this chapter, you'll have:
+
+✅ **Service server**: Responds to `AddTwoInts` requests (a + b = sum)
+✅ **Service client**: Sends requests and waits for responses
+✅ **Custom service**: `SetMotorSpeed` with input validation
+✅ **Decision framework**: Topics vs Services trade-offs
+
+---
+
+## Topics vs Services: The Key Difference
+
+### Topics (Publish-Subscribe)
+
+**Pattern**: One-to-many, asynchronous, continuous
+**Use case**: Streaming sensor data
+
+```
+Publisher ────> Topic ────> Subscriber 1
+                    └─────> Subscriber 2
+                    └─────> Subscriber 3
+```
+
+**Characteristics**:
+- Publisher doesn't wait for subscribers
+- Messages may be dropped (if queue full)
+- Fire-and-forget (no acknowledgment)
+- **Example**: Camera publishing images
+
+### Services (Request-Response)
+
+**Pattern**: One-to-one, synchronous, on-demand
+**Use case**: Querying state or triggering actions
+
+```
+Client ──[Request]──> Server
+Client <─[Response]─── Server
+```
+
+**Characteristics**:
+- Client **blocks** waiting for response
+- Guaranteed delivery (or timeout error)
+- **Exactly one server** per service name
+- **Example**: "Get battery level" → Returns percentage
+
+---
+
+## When to Use Services vs Topics
+
+| Scenario | Use Topic | Use Service |
+|----------|-----------|-------------|
+| Camera streaming 30 fps | ✅ | ❌ |
+| LiDAR scans | ✅ | ❌ |
+| Get current battery % | ❌ | ✅ |
+| Reset robot odometry | ❌ | ✅ |
+| Motor velocity commands | ✅ | ❌ |
+| Calculate path to goal | ❌ | ✅ |
+| Emergency stop button | ✅ | ❌ (latency critical) |
+| Save map to disk | ❌ | ✅ |
+
+**Rule of thumb**:
+- **High-frequency, real-time data** → Topics
+- **One-time queries or commands** → Services
+- **Need confirmation/result** → Services
+- **Many subscribers** → Topics
+
+---
+
+## Service Definition Files (.srv)
+
+Services use `.srv` files (similar to `.msg` files for topics).
+
+### Structure
+
+```
+# Request section
+int64 a
+int64 b
+---
+# Response section
+int64 sum
+```
+
+The `---` separator divides **request** (sent by client) from **response** (sent by server).
+
+### Example: AddTwoInts.srv
+
+```
+# AddTwoInts.srv
+# Add two integers and return the sum
+
+int64 a    # First number
+int64 b    # Second number
+---
+int64 sum  # Result
+```
+
+**Usage**:
+1. Client sends: `a=5, b=3`
+2. Server receives request, computes `sum = a + b`
+3. Server sends response: `sum=8`
+
+---
+
+## Hands-On: Creating a Service Server
+
+### Step 1: Create Service Package
+
+We'll add services to the `custom_msgs` package from Chapter 1.3.
+
+```bash
+cd ~/ros2_ws/src/custom_msgs
+mkdir srv
+```
+
+### Step 2: Create AddTwoInts.srv
+
+Create `srv/AddTwoInts.srv`:
+
+```
+# AddTwoInts.srv
+# Service to add two integers
+
+int64 a
+int64 b
+---
+int64 sum
+```
+
+### Step 3: Update CMakeLists.txt
+
+Edit `custom_msgs/CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.8)
+project(custom_msgs)
+
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+# Generate interfaces (messages AND services)
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/SensorData.msg"
+  "msg/IMU.msg"
+  "srv/AddTwoInts.srv"  # Add this line
+)
+
+ament_package()
+```
+
+### Step 4: Build
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select custom_msgs
+source install/setup.bash
+```
+
+### Step 5: Verify Service Generation
+
+```bash
+ros2 interface show custom_msgs/srv/AddTwoInts
+```
+
+**Expected output**:
+```
+int64 a
+int64 b
+---
+int64 sum
+```
+
+---
+
+## Writing a Service Server
+
+Create `py_pubsub/service_server.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from custom_msgs.srv import AddTwoInts
+
+
+class AddTwoIntsServer(Node):
+    def __init__(self):
+        super().__init__('add_two_ints_server')
+
+        # Create service: name='/add_two_ints', type=AddTwoInts, callback=self.add_two_ints_callback
+        self.srv = self.create_service(
+            AddTwoInts,
+            '/add_two_ints',
+            self.add_two_ints_callback
+        )
+
+        self.get_logger().info('AddTwoInts service server ready')
+
+    def add_two_ints_callback(self, request, response):
+        """
+        Called when client makes a request
+        Args:
+            request: AddTwoInts_Request with fields a, b
+            response: AddTwoInts_Response with field sum (to be filled)
+        Returns:
+            response: Filled response object
+        """
+        response.sum = request.a + request.b
+        self.get_logger().info(f'Request: {request.a} + {request.b} = {response.sum}')
+        return response
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = AddTwoIntsServer()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+**Key concepts**:
+- **`create_service(type, name, callback)`**: Creates service server
+- **Callback signature**: `callback(request, response)` must return `response`
+- **Blocking**: `rclpy.spin()` processes incoming requests in event loop
+
+### Register Server in setup.py
+
+Add to `py_pubsub/setup.py`:
+
+```python
+entry_points={
+    'console_scripts': [
+        # ... existing entries ...
+        'service_server = py_pubsub.service_server:main',
+    ],
+},
+```
+
+### Build and Run
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select py_pubsub
+source install/setup.bash
+
+ros2 run py_pubsub service_server
+```
+
+**Expected output**:
+```
+[INFO] [add_two_ints_server]: AddTwoInts service server ready
+```
+
+Server is now waiting for requests!
+
+---
+
+## Calling Services from CLI
+
+### List Available Services
+
+```bash
+ros2 service list
+```
+
+**Output**:
+```
+/add_two_ints
+/add_two_ints_server/describe_parameters
+/add_two_ints_server/get_parameter_types
+...
+```
+
+Our service `/add_two_ints` is listed!
+
+### Get Service Type
+
+```bash
+ros2 service type /add_two_ints
+```
+
+**Output**:
+```
+custom_msgs/srv/AddTwoInts
+```
+
+### Call Service from CLI
+
+```bash
+ros2 service call /add_two_ints custom_msgs/srv/AddTwoInts "{a: 5, b: 3}"
+```
+
+**Output**:
+```
+waiting for service to become available...
+requester: making request: custom_msgs.srv.AddTwoInts_Request(a=5, b=3)
+
+response:
+custom_msgs.srv.AddTwoInts_Response(sum=8)
+```
+
+**Server log**:
+```
+[INFO] [add_two_ints_server]: Request: 5 + 3 = 8
+```
+
+**Success!** You've made your first service call. 🎉
+
+---
+
+## Writing a Service Client
+
+Create `py_pubsub/service_client.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from custom_msgs.srv import AddTwoInts
+import sys
+
+
+class AddTwoIntsClient(Node):
+    def __init__(self):
+        super().__init__('add_two_ints_client')
+
+        # Create client: service_name='/add_two_ints', service_type=AddTwoInts
+        self.client = self.create_client(AddTwoInts, '/add_two_ints')
+
+        # Wait for service to be available (timeout after 5 seconds)
+        while not self.client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for service /add_two_ints...')
+
+        self.get_logger().info('Connected to service!')
+
+    def send_request(self, a, b):
+        """Send request and wait for response (blocking)"""
+        request = AddTwoInts.Request()
+        request.a = a
+        request.b = b
+
+        self.get_logger().info(f'Sending request: {a} + {b}')
+
+        # Call service (blocking until response or timeout)
+        future = self.client.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+
+        if future.result() is not None:
+            response = future.result()
+            self.get_logger().info(f'Result: {response.sum}')
+            return response.sum
+        else:
+            self.get_logger().error('Service call failed')
+            return None
+
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    if len(sys.argv) != 3:
+        print('Usage: ros2 run py_pubsub service_client <a> <b>')
+        return
+
+    a = int(sys.argv[1])
+    b = int(sys.argv[2])
+
+    client_node = AddTwoIntsClient()
+    result = client_node.send_request(a, b)
+
+    client_node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+**Key concepts**:
+- **`create_client(type, name)`**: Creates service client
+- **`wait_for_service()`**: Blocks until server is available
+- **`call_async(request)`**: Sends request, returns `Future`
+- **`spin_until_future_complete()`**: Waits for response
+
+### Register Client in setup.py
+
+```python
+entry_points={
+    'console_scripts': [
+        # ... existing entries ...
+        'service_client = py_pubsub.service_client:main',
+    ],
+},
+```
+
+### Build and Run
+
+```bash
+colcon build --packages-select py_pubsub
+source install/setup.bash
+
+# Make sure server is running in another terminal
+ros2 run py_pubsub service_server
+
+# Call service with client
+ros2 run py_pubsub service_client 10 20
+```
+
+**Client output**:
+```
+[INFO] [add_two_ints_client]: Connected to service!
+[INFO] [add_two_ints_client]: Sending request: 10 + 20
+[INFO] [add_two_ints_client]: Result: 30
+```
+
+**Server output**:
+```
+[INFO] [add_two_ints_server]: Request: 10 + 20 = 30
+```
+
+---
+
+## Custom Service with Validation
+
+Let's create a realistic service: **SetMotorSpeed** with input validation.
+
+### Step 1: Create SetMotorSpeed.srv
+
+Create `custom_msgs/srv/SetMotorSpeed.srv`:
+
+```
+# SetMotorSpeed.srv
+# Set motor speed with validation
+
+int32 motor_id      # Motor identifier (0-3)
+float32 speed       # Speed in m/s (-2.0 to 2.0)
+---
+bool success        # True if speed was set
+string message      # Error message if failed
+```
+
+### Step 2: Add to CMakeLists.txt
+
+```cmake
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/SensorData.msg"
+  "msg/IMU.msg"
+  "srv/AddTwoInts.srv"
+  "srv/SetMotorSpeed.srv"  # Add this
+)
+```
+
+### Step 3: Build
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select custom_msgs
+source install/setup.bash
+```
+
+### Step 4: Create Server with Validation
+
+Create `py_pubsub/motor_service_server.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from custom_msgs.srv import SetMotorSpeed
+
+
+class MotorServiceServer(Node):
+    def __init__(self):
+        super().__init__('motor_service_server')
+
+        self.srv = self.create_service(
+            SetMotorSpeed,
+            '/set_motor_speed',
+            self.set_motor_speed_callback
+        )
+
+        # Simulate motor speeds (4 motors)
+        self.motor_speeds = [0.0, 0.0, 0.0, 0.0]
+
+        self.get_logger().info('Motor service server ready')
+
+    def set_motor_speed_callback(self, request, response):
+        # Validate motor ID
+        if request.motor_id < 0 or request.motor_id > 3:
+            response.success = False
+            response.message = f'Invalid motor_id {request.motor_id}. Must be 0-3.'
+            self.get_logger().warn(response.message)
+            return response
+
+        # Validate speed range
+        if request.speed < -2.0 or request.speed > 2.0:
+            response.success = False
+            response.message = f'Invalid speed {request.speed}. Must be -2.0 to 2.0 m/s.'
+            self.get_logger().warn(response.message)
+            return response
+
+        # Set motor speed
+        self.motor_speeds[request.motor_id] = request.speed
+        response.success = True
+        response.message = f'Motor {request.motor_id} set to {request.speed} m/s'
+
+        self.get_logger().info(response.message)
+        return response
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = MotorServiceServer()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+**Validation logic**:
+1. Check motor_id in range [0, 3]
+2. Check speed in range [-2.0, 2.0]
+3. If invalid, return `success=False` with error message
+4. If valid, update motor speed and return `success=True`
+
+### Test with CLI
+
+```bash
+# Start server
+ros2 run py_pubsub motor_service_server
+
+# Valid request
+ros2 service call /set_motor_speed custom_msgs/srv/SetMotorSpeed "{motor_id: 0, speed: 1.5}"
+# Response: success=True, message='Motor 0 set to 1.5 m/s'
+
+# Invalid motor ID
+ros2 service call /set_motor_speed custom_msgs/srv/SetMotorSpeed "{motor_id: 5, speed: 1.0}"
+# Response: success=False, message='Invalid motor_id 5. Must be 0-3.'
+
+# Invalid speed
+ros2 service call /set_motor_speed custom_msgs/srv/SetMotorSpeed "{motor_id: 0, speed: 3.0}"
+# Response: success=False, message='Invalid speed 3.0. Must be -2.0 to 2.0 m/s.'
+```
+
+---
+
+## Topics vs Services: Decision Matrix
+
+### Use Topics When:
+
+✅ **High frequency**: Data updated >1 Hz (sensors, odometry)
+✅ **Real-time critical**: Emergency stops, motor commands
+✅ **Many subscribers**: Multiple nodes need same data
+✅ **One-way**: Publisher doesn't care about response
+✅ **Latest value matters**: Old data can be dropped
+
+**Example**: Camera images at 30 Hz—subscribers just want latest frame.
+
+### Use Services When:
+
+✅ **Low frequency**: Occasional operations (reset, save map)
+✅ **Need confirmation**: Must know if operation succeeded
+✅ **Compute result**: Calculate path, solve IK, query state
+✅ **One-to-one**: Only one server should handle request
+✅ **Blocking acceptable**: Client can wait for response
+
+**Example**: "Save current map to disk"—need confirmation it saved.
+
+### Edge Cases
+
+**Scenario**: "Emergency stop button"
+- **Seems like service** (command + confirmation)
+- **Actually topic** (latency critical, can't wait for response)
+- **Solution**: Publish `/emergency_stop` topic at high frequency
+
+**Scenario**: "Navigation goal"
+- **Seems like service** (send goal, get result)
+- **Actually Action** (long-running task with feedback)
+- **Solution**: Use **ROS 2 Actions** (Chapter 3.x, covered in Module 3)
+
+---
+
+## Asynchronous Service Calls (Advanced)
+
+The client example used **synchronous** calls (blocking). For **asynchronous** (non-blocking):
+
+```python
+class AsyncServiceClient(Node):
+    def __init__(self):
+        super().__init__('async_client')
+        self.client = self.create_client(AddTwoInts, '/add_two_ints')
+
+    def send_request_async(self, a, b):
+        request = AddTwoInts.Request()
+        request.a = a
+        request.b = b
+
+        # Call async, get future
+        future = self.client.call_async(request)
+
+        # Attach callback (called when response arrives)
+        future.add_done_callback(self.response_callback)
+
+    def response_callback(self, future):
+        try:
+            response = future.result()
+            self.get_logger().info(f'Async result: {response.sum}')
+        except Exception as e:
+            self.get_logger().error(f'Service call failed: {e}')
+```
+
+**Use case**: Send request, continue processing, handle response later.
+
+---
+
+## Common Errors and Fixes
+
+### Error: "Service /add_two_ints not available"
+
+**Cause**: Server not running or service name mismatch.
+
+**Fix**:
+```bash
+ros2 service list  # Verify service name
+# Start server if not running
+```
+
+### Error: "Timeout waiting for service"
+
+**Cause**: Server crashed or network issue.
+
+**Fix**: Check server logs, increase `timeout_sec` in `wait_for_service()`.
+
+### Error: "AttributeError: 'AddTwoInts_Request' object has no attribute 'x'"
+
+**Cause**: Trying to access non-existent field.
+
+**Fix**: Check service definition with `ros2 interface show custom_msgs/srv/AddTwoInts`.
+
+### Error: Service call returns immediately with None
+
+**Cause**: Forgot to return `response` in callback.
+
+**Fix**: Ensure callback ends with `return response`.
+
+---
+
+## Key Takeaways
+
+🎓 **Services** provide **synchronous request-response** communication, complementing asynchronous topics.
+
+🎓 **`.srv` files** define service interfaces with request (above `---`) and response (below) sections.
+
+🎓 **Service servers** use `create_service()` and implement callback returning `response`.
+
+🎓 **Service clients** use `create_client()`, `call_async()`, and `spin_until_future_complete()` for blocking calls.
+
+🎓 **Validation** in service callbacks ensures data integrity (check ranges, IDs, permissions).
+
+🎓 **Decision matrix**: Topics for streaming/real-time, Services for queries/commands/confirmations.
+
+---
+
+## What's Next?
+
+You've mastered ROS 2 communication: topics for data streams, services for request-response. Now it's time to describe **physical robots**!
+
+In **Chapter 1.5: Robot Descriptions with URDF**, you'll:
+
+- Learn URDF (Unified Robot Description Format) XML structure
+- Define robot links (rigid bodies) and joints (connections)
+- Create a humanoid robot model with torso, arms, and legs
+- Understand kinematic trees and coordinate frames
+
+**Continue to** → [Chapter 1.5: URDF](./chapter-1-5-urdf)
+
+---
+
+## Assessment: Robot Reset Service
+
+**Goal**: Create a service that resets robot odometry to zero.
+
+**Tasks**:
+
+1. **Create `ResetOdometry.srv`** in `custom_msgs/srv/`:
+   ```
+   # Request (empty - no parameters needed)
+   ---
+   # Response
+   bool success
+   string message
+   ```
+
+2. **Create service server** that:
+   - Resets simulated odometry to (0, 0, 0)
+   - Logs: "Odometry reset to origin"
+   - Returns `success=True, message="Odometry reset successfully"`
+
+3. **Call from CLI**:
+   ```bash
+   ros2 service call /reset_odometry custom_msgs/srv/ResetOdometry "{}"
+   ```
+
+4. **Create Python client** that calls service and prints response.
+
+5. **Verify**: Take screenshot showing server logs, client output, and CLI call.
+
+**Expected Pass Rate**: 75% of learners complete within 45 minutes.
+
+**Bonus**: Add `float64 x, float64 y, float64 theta` to request to reset to custom pose instead of origin.
+
+---
+
+## Additional Resources
+
+📚 **Official Documentation**:
+- [ROS 2 Services Tutorial](https://docs.ros.org/en/humble/Tutorials/Beginner-Client-Libraries/Writing-A-Simple-Py-Service-And-Client.html)
+- [Understanding ROS 2 Services](https://docs.ros.org/en/humble/Tutorials/Beginner-CLI-Tools/Understanding-ROS2-Services/Understanding-ROS2-Services.html)
+- [Creating custom srv files](https://docs.ros.org/en/humble/Tutorials/Beginner-Client-Libraries/Custom-ROS2-Interfaces.html#creating-custom-srv-files)
+
+📺 **Video Tutorials**:
+- The Construct - ROS 2 Services Tutorial
+- Articulated Robotics - Services in ROS 2
+
+🛠️ **Standard Services**:
+- [std_srvs](https://github.com/ros2/common_interfaces/tree/humble/std_srvs) - Standard service types (Empty, SetBool, Trigger)
+- [example_interfaces](https://github.com/ros2/example_interfaces) - Example services (AddTwoInts, SetBool)
+
+---
+
+**Chapter Status**: Complete ✅
+**Next Chapter**: [1.5 URDF](./chapter-1-5-urdf)
+
+</TabItem>
+
+<TabItem value="summary" label="Summary">
+
+## Quick Summary
+
+**Learning Objectives Recap:**
+- Compare topics vs services (asynchronous vs synchronous, many-to-many vs one-to-one)
+- Create service servers responding to client requests with custom .srv types
+- Call services from Python client nodes and CLI
+- Evaluate scenarios to determine when to use topics vs services
+
+**Core Concepts:**
+
+**Services** provide synchronous request-response communication—clients send requests and block waiting for server responses. Unlike topics (one-to-many, async, streaming), services are one-to-one, synchronous, and on-demand.
+
+**Topics vs Services Decision Matrix:**
+- ✅ **Topics**: High-frequency streaming (camera 30fps, LiDAR scans), real-time sensor data, many subscribers needed, fire-and-forget
+- ✅ **Services**: One-time queries ("What's battery level?"), commands needing confirmation ("Reset odometry"), computed results ("Calculate path"), exactly one server required
+
+**Service Definition Files (.srv)** define request-response structure with `---` separator:
+```
+# AddTwoInts.srv
+int64 a    # Request: first number
+int64 b    # Request: second number
+---
+int64 sum  # Response: result
+```
+
+**Creating Service Server:**
+
+```python
+from custom_msgs.srv import AddTwoInts
+
+class AddTwoIntsServer(Node):
+    def __init__(self):
+        super().__init__('add_two_ints_server')
+        self.service_ = self.create_service(
+            AddTwoInts,
+            '/add_two_ints',
+            self.add_callback
+        )
+
+    def add_callback(self, request, response):
+        # Compute result
+        response.sum = request.a + request.b
+        self.get_logger().info(
+            f'{request.a} + {request.b} = {response.sum}')
+        return response  # Must return response object
+```
+
+**Key elements**: `create_service(type, name, callback)` registers server, callback receives `request` and `response` objects, **must return response**.
+
+**Creating Service Client:**
+
+```python
+from custom_msgs.srv import AddTwoInts
+
+class AddTwoIntsClient(Node):
+    def __init__(self):
+        super().__init__('add_two_ints_client')
+        self.client_ = self.create_client(AddTwoInts, '/add_two_ints')
+
+        # Wait for service to be available
+        while not self.client_.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for service...')
+
+    def send_request(self, a, b):
+        request = AddTwoInts.Request()
+        request.a = a
+        request.b = b
+
+        # Send request (returns Future)
+        future = self.client_.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+
+        # Get response
+        return future.result()
+```
+
+**Calling from CLI:**
+```bash
+# List services
+ros2 service list
+
+# Get service type
+ros2 service type /add_two_ints
+
+# Call service from command line
+ros2 service call /add_two_ints custom_msgs/srv/AddTwoInts "{a: 5, b: 3}"
+```
+
+**Service File Generation** (add to CMakeLists.txt):
+```cmake
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/AddTwoInts.srv"
+)
+```
+
+**Best Practices:**
+1. **Validation**: Check request parameters (ranges, IDs, permissions) before processing
+2. **Error handling**: Use bool success + string message fields in response
+3. **Timeouts**: Set reasonable timeout_sec in wait_for_service()
+4. **Naming**: Use descriptive service names (`/reset_odometry`, not `/reset`)
+
+**Quick Check:**
+- [ ] Can you explain when to use services vs topics?
+- [ ] Can you write a .srv file with request and response sections?
+- [ ] Can you create a service server that validates input?
+- [ ] Can you call services from both Python clients and CLI?
+
+**Prerequisites for Next Chapter:** Understanding of ROS 2 communication patterns (topics and services), ready to learn robot physical descriptions with URDF.
+
+</TabItem>
+
+</Tabs>

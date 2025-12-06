@@ -1,0 +1,835 @@
+---
+id: chapter-1-3-custom-messages
+title: "Chapter 1.3: Custom Messages and Data Structures"
+sidebar_label: "1.3 Custom Messages"
+sidebar_position: 3
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs defaultValue="content" groupId="chapter-view">
+
+<TabItem value="content" label="Content" default>
+
+# Chapter 1.3: Custom Messages and Data Structures
+
+## Beyond Strings and Integers
+
+In Chapter 1.2, you published simple `String` messages. But real robots need structured data: a camera sends images with timestamps and resolution; an IMU reports acceleration, gyroscope, and orientation; a GPS provides latitude, longitude, and satellite count.
+
+**Custom messages** let you define exactly the data structure your application needs—with type safety, semantic clarity, and efficient serialization. In this chapter, you'll learn to design, build, and use custom ROS 2 message types.
+
+---
+
+## Learning Objectives
+
+By the end of this chapter, you will:
+
+- **Understand**: Explain when to use custom messages vs standard message types (std_msgs, geometry_msgs, sensor_msgs)
+- **Apply**: Create .msg file with primitive types (int32, float64, string, bool) and arrays
+- **Apply**: Build ROS 2 package with custom messages using colcon and verify message generation
+- **Create**: Design sensor message type with 5+ fields representing real sensor data (IMU, GPS)
+
+**Estimated Time**: 2 hours
+
+---
+
+## Prerequisites
+
+- **Chapter 1.2 complete** (Publishers & Subscribers)
+- **Understanding of data types** (integers, floats, strings, arrays)
+- **ROS 2 workspace** from Chapter 1.2 (`~/ros2_ws`)
+
+---
+
+## What You'll Build
+
+By the end of this chapter, you'll have:
+
+✅ **Custom message package** (`custom_msgs`) with `.msg` files
+✅ **SensorData.msg**: Temperature, humidity, timestamp
+✅ **IMU.msg**: Acceleration, gyroscope, orientation (9-axis sensor)
+✅ **Publisher/subscriber** using your custom messages
+
+---
+
+## The Problem with Standard Messages
+
+### Example: Sending Sensor Data
+
+Imagine you want to publish temperature and humidity from a sensor. With `std_msgs/String`:
+
+```python
+msg = String()
+msg.data = "temp:23.5,humidity:65.2"  # ❌ Parsing nightmare!
+self.publisher_.publish(msg)
+```
+
+**Problems**:
+1. **No type safety**: Subscriber must parse string and handle errors
+2. **Inefficient**: Strings are larger than binary numbers
+3. **Unclear semantics**: What are the units? Celsius or Fahrenheit?
+4. **Error-prone**: Typo "temp:23,5" (comma instead of dot) breaks parsing
+
+### Solution: Custom Message
+
+```python
+msg = SensorData()  # ✅ Structured, type-safe
+msg.temperature = 23.5  # float32
+msg.humidity = 65.2     # float32
+msg.timestamp = self.get_clock().now().to_msg()  # builtin_interfaces/Time
+self.publisher_.publish(msg)
+```
+
+**Benefits**:
+1. **Type safety**: Can't accidentally assign string to float
+2. **Efficient**: Binary serialization (4 bytes per float vs 10+ for string "23.5")
+3. **Clear semantics**: Field names document meaning
+4. **Auto-completion**: IDEs suggest field names
+
+---
+
+## When to Use Standard vs Custom Messages
+
+### Use Standard Messages When:
+
+✅ **Data fits existing types**:
+- `std_msgs/String`, `std_msgs/Int32`, `std_msgs/Float64`
+- `geometry_msgs/Twist` (velocity commands: linear + angular)
+- `sensor_msgs/Image` (camera images)
+- `sensor_msgs/LaserScan` (LiDAR scans)
+
+**Example**: Commanding robot velocity? Use `geometry_msgs/Twist` (standard in ROS ecosystem).
+
+### Use Custom Messages When:
+
+✅ **No standard type exists**: Your sensor has unique data (e.g., soil moisture + pH + light)
+✅ **Combining multiple standard types**: Want temperature + humidity + pressure in one message
+✅ **Application-specific data**: Game scores, inventory counts, custom robot states
+
+**Rule of thumb**: Check [ROS 2 Common Interfaces](https://github.com/ros2/common_interfaces) first. If nothing fits, create custom.
+
+---
+
+## Message File Syntax (.msg)
+
+### Primitive Types
+
+ROS 2 supports these primitive types:
+
+| Type | Description | Size | Example |
+|------|-------------|------|---------|
+| `bool` | Boolean | 1 byte | `true`, `false` |
+| `int8`, `uint8` | 8-bit integer | 1 byte | -128 to 127, 0 to 255 |
+| `int16`, `uint16` | 16-bit integer | 2 bytes | -32768 to 32767 |
+| `int32`, `uint32` | 32-bit integer | 4 bytes | -2B to 2B, 0 to 4B |
+| `int64`, `uint64` | 64-bit integer | 8 bytes | Large numbers |
+| `float32` | 32-bit float | 4 bytes | 3.14159 |
+| `float64` | 64-bit float | 8 bytes | High-precision |
+| `string` | UTF-8 text | Variable | "Hello ROS 2" |
+
+### Arrays
+
+**Fixed-size array** (allocated at compile-time):
+```
+int32[10] readings      # Exactly 10 integers
+float32[3] position     # x, y, z coordinates
+```
+
+**Dynamic-size array** (allocated at runtime):
+```
+int32[] readings        # Variable number of integers
+string[] names          # List of strings
+```
+
+### Constants
+
+Define constants for magic numbers:
+
+```
+int32 SENSOR_TYPE_TEMPERATURE=1
+int32 SENSOR_TYPE_HUMIDITY=2
+float32 MAX_TEMPERATURE=100.0
+```
+
+### Example: SensorData.msg
+
+```
+# SensorData.msg - Simple environmental sensor
+
+float32 temperature    # Celsius
+float32 humidity       # Percentage (0-100)
+int64 timestamp        # Unix time (nanoseconds since epoch)
+string sensor_id       # Unique sensor identifier
+bool is_valid          # Data quality flag
+```
+
+**Line-by-line**:
+- `float32 temperature`: Stores decimal values (e.g., 23.5°C)
+- `int64 timestamp`: Large integer for nanosecond precision
+- `string sensor_id`: Variable-length text (e.g., "sensor_01")
+- `bool is_valid`: True if sensor reading is reliable
+
+---
+
+## Hands-On: Creating Custom Messages
+
+### Step 1: Create Message Package
+
+Custom messages live in a **separate package** (best practice for reusability).
+
+```bash
+cd ~/ros2_ws/src
+ros2 pkg create --build-type ament_cmake custom_msgs
+cd custom_msgs
+```
+
+**Why `ament_cmake`?** Message generation requires CMake (even for Python).
+
+### Step 2: Create msg Directory
+
+```bash
+mkdir msg
+```
+
+### Step 3: Write SensorData.msg
+
+Create `msg/SensorData.msg`:
+
+```
+# SensorData.msg
+# Environmental sensor readings
+
+float32 temperature    # Degrees Celsius
+float32 humidity       # Relative humidity (%)
+int64 timestamp        # Unix timestamp (nanoseconds)
+string sensor_id       # Sensor identifier
+bool is_valid          # Data validity flag
+```
+
+**Comments** (lines starting with `#`) are optional but recommended for documentation.
+
+### Step 4: Configure CMakeLists.txt
+
+Edit `CMakeLists.txt` to enable message generation:
+
+```cmake
+cmake_minimum_required(VERSION 3.8)
+project(custom_msgs)
+
+# Find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)  # Message generation
+
+# Declare messages to generate
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/SensorData.msg"
+)
+
+ament_package()
+```
+
+**Key addition**: `rosidl_generate_interfaces()` tells ROS 2 to generate Python/C++ code from `.msg` files.
+
+### Step 5: Configure package.xml
+
+Edit `package.xml` to add message generation dependencies:
+
+```xml
+<?xml version="1.0"?>
+<package format="3">
+  <name>custom_msgs</name>
+  <version>0.0.1</version>
+  <description>Custom message definitions</description>
+  <maintainer email="you@email.com">Your Name</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Message generation dependencies -->
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+```
+
+**Key additions**:
+- `rosidl_default_generators`: Build-time dependency (generates code)
+- `rosidl_default_runtime`: Runtime dependency (loads generated code)
+- `<member_of_group>rosidl_interface_packages</member_of_group>`: Registers package as message provider
+
+### Step 6: Build Package
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select custom_msgs
+source install/setup.bash
+```
+
+**What happens during build**:
+1. CMake reads `msg/SensorData.msg`
+2. `rosidl` generator creates Python classes in `install/custom_msgs/lib/python3.10/site-packages/custom_msgs/msg/`
+3. Generated files: `_sensor_data.py`, `__init__.py`
+
+### Step 7: Verify Message Generation
+
+```bash
+ros2 interface show custom_msgs/msg/SensorData
+```
+
+**Expected output**:
+```
+float32 temperature
+float32 humidity
+int64 timestamp
+string sensor_id
+bool is_valid
+```
+
+**Success!** Your custom message is ready to use.
+
+---
+
+## Using Custom Messages in Nodes
+
+### Publisher with Custom Message
+
+Create `custom_publisher.py` in your `py_pubsub` package from Chapter 1.2:
+
+```python
+import rclpy
+from rclpy.node import Node
+from custom_msgs.msg import SensorData  # Import custom message
+import time
+
+
+class SensorPublisher(Node):
+    def __init__(self):
+        super().__init__('sensor_publisher')
+        self.publisher_ = self.create_publisher(SensorData, '/sensor_data', 10)
+        self.timer_ = self.create_timer(1.0, self.publish_sensor_data)
+        self.get_logger().info('Sensor publisher started')
+
+    def publish_sensor_data(self):
+        msg = SensorData()
+
+        # Fill message fields
+        msg.temperature = 23.5 + (time.time() % 10)  # Simulate varying temp
+        msg.humidity = 65.2
+        msg.timestamp = int(time.time() * 1e9)  # Nanoseconds
+        msg.sensor_id = 'DHT22_01'
+        msg.is_valid = True
+
+        self.publisher_.publish(msg)
+        self.get_logger().info(f'Published: temp={msg.temperature:.2f}°C, humidity={msg.humidity}%')
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = SensorPublisher()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+**Key changes from Chapter 1.2**:
+- Import `custom_msgs.msg` instead of `std_msgs.msg`
+- Create `SensorData()` instead of `String()`
+- Access fields by name: `msg.temperature`, `msg.humidity`
+
+### Subscriber with Custom Message
+
+Create `custom_subscriber.py`:
+
+```python
+import rclpy
+from rclpy.node import Node
+from custom_msgs.msg import SensorData
+
+
+class SensorSubscriber(Node):
+    def __init__(self):
+        super().__init__('sensor_subscriber')
+        self.subscription_ = self.create_subscription(
+            SensorData,
+            '/sensor_data',
+            self.sensor_callback,
+            10
+        )
+        self.get_logger().info('Sensor subscriber started')
+
+    def sensor_callback(self, msg):
+        # Access message fields directly
+        self.get_logger().info(
+            f'Received from {msg.sensor_id}: '
+            f'temp={msg.temperature:.2f}°C, '
+            f'humidity={msg.humidity:.1f}%, '
+            f'valid={msg.is_valid}'
+        )
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = SensorSubscriber()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
+```
+
+### Update setup.py
+
+Add new executables to `py_pubsub/setup.py`:
+
+```python
+entry_points={
+    'console_scripts': [
+        'talker = py_pubsub.talker:main',
+        'listener = py_pubsub.listener:main',
+        'custom_publisher = py_pubsub.custom_publisher:main',
+        'custom_subscriber = py_pubsub.custom_subscriber:main',
+    ],
+},
+```
+
+### Update package.xml
+
+Add dependency on `custom_msgs` in `py_pubsub/package.xml`:
+
+```xml
+<depend>custom_msgs</depend>
+```
+
+### Build and Run
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select py_pubsub
+source install/setup.bash
+
+# Terminal 1
+ros2 run py_pubsub custom_publisher
+
+# Terminal 2
+ros2 run py_pubsub custom_subscriber
+```
+
+**Expected output (publisher)**:
+```
+[INFO] [sensor_publisher]: Published: temp=23.50°C, humidity=65.2%
+[INFO] [sensor_publisher]: Published: temp=24.73°C, humidity=65.2%
+```
+
+**Expected output (subscriber)**:
+```
+[INFO] [sensor_subscriber]: Received from DHT22_01: temp=23.50°C, humidity=65.2%, valid=True
+```
+
+---
+
+## Advanced: Multi-Field Sensor (IMU Example)
+
+### IMU.msg
+
+An **Inertial Measurement Unit (IMU)** measures:
+- **Accelerometer**: Linear acceleration (x, y, z) in m/s²
+- **Gyroscope**: Angular velocity (x, y, z) in rad/s
+- **Magnetometer**: Magnetic field (optional)
+
+Create `msg/IMU.msg`:
+
+```
+# IMU.msg
+# Inertial Measurement Unit data
+
+# Linear acceleration (m/s^2)
+float64[3] acceleration
+
+# Angular velocity (rad/s)
+float64[3] gyroscope
+
+# Orientation quaternion (x, y, z, w)
+float64[4] orientation
+
+# Timestamp
+int64 timestamp
+
+# Constants
+int32 SENSOR_TYPE_MPU6050=1
+int32 SENSOR_TYPE_BMI088=2
+```
+
+**Array syntax**:
+- `float64[3]`: Fixed array of 3 floats (x, y, z)
+- `float64[4]`: Fixed array of 4 floats (quaternion)
+
+### Add to CMakeLists.txt
+
+```cmake
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/SensorData.msg"
+  "msg/IMU.msg"  # Add this line
+)
+```
+
+### Build and Test
+
+```bash
+colcon build --packages-select custom_msgs
+source install/setup.bash
+
+ros2 interface show custom_msgs/msg/IMU
+```
+
+**Output**:
+```
+float64[3] acceleration
+float64[3] gyroscope
+float64[4] orientation
+int64 timestamp
+int32 SENSOR_TYPE_MPU6050=1
+int32 SENSOR_TYPE_BMI088=2
+```
+
+---
+
+## Nested Messages (Advanced)
+
+You can use **other messages as fields**.
+
+### Example: Header + Data
+
+```
+# AdvancedSensor.msg
+
+std_msgs/Header header   # Reuse standard header (timestamp, frame_id)
+float32 temperature
+float32 humidity
+```
+
+**Import** standard messages by adding dependency in `package.xml`:
+
+```xml
+<depend>std_msgs</depend>
+```
+
+And in `CMakeLists.txt`:
+
+```cmake
+find_package(std_msgs REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/AdvancedSensor.msg"
+  DEPENDENCIES std_msgs
+)
+```
+
+**Usage**:
+```python
+from std_msgs.msg import Header
+msg.header = Header()
+msg.header.stamp = self.get_clock().now().to_msg()
+msg.header.frame_id = 'sensor_frame'
+```
+
+---
+
+## Best Practices for Message Design
+
+### 1. Use Descriptive Names
+
+❌ Bad: `msg.val1`, `msg.val2`
+✅ Good: `msg.temperature`, `msg.humidity`
+
+### 2. Include Units in Comments
+
+```
+float32 temperature    # Degrees Celsius
+float32 distance       # Meters
+float32 speed          # Meters per second
+```
+
+### 3. Add Timestamps
+
+Always include time information for sensor data:
+
+```
+int64 timestamp        # Unix time (nanoseconds)
+```
+
+Or use standard header:
+```
+std_msgs/Header header
+```
+
+### 4. Use Smallest Sufficient Type
+
+❌ `float64` for temperature (8 bytes)
+✅ `float32` for temperature (4 bytes, 0.0001°C precision sufficient)
+
+❌ `int64` for sensor count (max value 100)
+✅ `uint8` for sensor count (0-255 range)
+
+### 5. Group Related Fields
+
+```
+# Position
+float32 x
+float32 y
+float32 z
+
+# Velocity
+float32 vx
+float32 vy
+float32 vz
+```
+
+Or use arrays:
+```
+float32[3] position    # x, y, z
+float32[3] velocity    # vx, vy, vz
+```
+
+---
+
+## Troubleshooting
+
+### Error: "ModuleNotFoundError: No module named 'custom_msgs'"
+
+**Cause**: Message package not built or workspace not sourced.
+
+**Fix**:
+```bash
+cd ~/ros2_ws
+colcon build --packages-select custom_msgs
+source install/setup.bash
+```
+
+### Error: "No msg file found"
+
+**Cause**: `.msg` file not in `msg/` directory or not listed in `CMakeLists.txt`.
+
+**Fix**: Verify file location and `rosidl_generate_interfaces()` in `CMakeLists.txt`.
+
+### Error: "Package 'custom_msgs' not found"
+
+**Cause**: Missing `<depend>custom_msgs</depend>` in subscriber package's `package.xml`.
+
+**Fix**: Add dependency and rebuild.
+
+### Build Error: "Could not find rosidl_default_generators"
+
+**Cause**: Message generation package not installed.
+
+**Fix**:
+```bash
+sudo apt install ros-humble-rosidl-default-generators
+```
+
+---
+
+## Key Takeaways
+
+🎓 **Custom messages** provide type-safe, efficient, and semantic data structures for application-specific needs.
+
+🎓 **`.msg` files** define message structure using primitive types (int32, float32, string, bool), arrays, and nested messages.
+
+🎓 **Message generation** (`rosidl_generate_interfaces`) creates Python/C++ classes from `.msg` files during `colcon build`.
+
+🎓 **Best practices**: Use descriptive names, include units in comments, add timestamps, choose smallest sufficient types.
+
+🎓 **Separate package** for messages enables reuse across multiple nodes and projects.
+
+---
+
+## What's Next?
+
+You've mastered asynchronous publish-subscribe communication. But what about **synchronous request-response patterns**—like asking a robot "What's your battery level?" and waiting for an answer?
+
+In **Chapter 1.4: Services and Request-Response Patterns**, you'll:
+
+- Understand when to use **services** vs topics
+- Create service servers that respond to client requests
+- Design custom service types (.srv files)
+- Implement robot control via service calls
+
+**Continue to** → [Chapter 1.4: Services](./chapter-1-4-services)
+
+---
+
+## Assessment: GPS Message Challenge
+
+**Goal**: Create a GPS message type and publish/subscribe to it.
+
+**Tasks**:
+
+1. **Create `GPS.msg`** in `custom_msgs/msg/` with these fields:
+   - `float64 latitude` (degrees, -90 to 90)
+   - `float64 longitude` (degrees, -180 to 180)
+   - `float32 altitude` (meters above sea level)
+   - `uint8 satellites` (number of satellites, 0-255)
+   - `int64 timestamp` (nanoseconds)
+   - `bool fix_valid` (GPS fix quality)
+
+2. **Add constants** for GPS fix types:
+   - `uint8 FIX_TYPE_NONE=0`
+   - `uint8 FIX_TYPE_2D=2`
+   - `uint8 FIX_TYPE_3D=3`
+
+3. **Build message package** and verify with `ros2 interface show`
+
+4. **Create publisher** that sends simulated GPS coordinates (use your hometown coordinates)
+
+5. **Create subscriber** that logs GPS data in format: "GPS: lat=40.7128, lon=-74.0060, alt=10m, sats=8"
+
+6. **Verify**:
+   - Use `ros2 topic echo /gps_data` to see messages
+   - Take screenshot showing publisher, subscriber, and topic echo
+
+**Expected Pass Rate**: 70% of learners complete within 60 minutes.
+
+**Bonus**: Add `float32 speed` (m/s) and `float32 heading` (degrees) fields.
+
+---
+
+## Additional Resources
+
+📚 **Official Documentation**:
+- [Creating custom ROS 2 msg files](https://docs.ros.org/en/humble/Tutorials/Beginner-Client-Libraries/Custom-ROS2-Interfaces.html)
+- [About ROS 2 interfaces](https://docs.ros.org/en/humble/Concepts/About-ROS-Interfaces.html)
+- [rosidl (ROS Interface Definition Language)](https://github.com/ros2/rosidl)
+
+📺 **Video Tutorials**:
+- The Construct - ROS 2 Custom Messages Tutorial
+- Articulated Robotics - Custom Interfaces in ROS 2
+
+🛠️ **Message Type References**:
+- [std_msgs](https://github.com/ros2/common_interfaces/tree/humble/std_msgs) - Standard message types
+- [geometry_msgs](https://github.com/ros2/common_interfaces/tree/humble/geometry_msgs) - Geometric primitives
+- [sensor_msgs](https://github.com/ros2/common_interfaces/tree/humble/sensor_msgs) - Sensor data types
+
+---
+
+**Chapter Status**: Complete ✅
+**Next Chapter**: [1.4 Services](./chapter-1-4-services)
+
+</TabItem>
+
+<TabItem value="summary" label="Summary">
+
+## Quick Summary
+
+**Learning Objectives Recap:**
+- Explain when to use custom messages vs standard message types
+- Create .msg files with primitive types, arrays, and constants
+- Build ROS 2 packages with custom message generation using colcon
+- Design sensor message types representing real-world data (IMU, GPS)
+
+**Core Concepts:**
+
+**Custom Messages** provide type-safe, efficient, structured data for application-specific needs. While standard messages (std_msgs/String, geometry_msgs/Twist, sensor_msgs/Image) cover common robotics scenarios, custom messages are essential when no standard type exists, when combining multiple data types, or for application-specific robot states.
+
+**When to Use Custom vs Standard:**
+- ✅ **Standard**: Data fits existing types (velocity commands use geometry_msgs/Twist, camera images use sensor_msgs/Image)
+- ✅ **Custom**: Unique sensor combinations (temperature + humidity + pressure), application-specific data, no standard equivalent exists
+
+**Message File Syntax (.msg)** defines data structures with:
+- **Primitive types**: `bool`, `int8/16/32/64`, `uint8/16/32/64`, `float32/64`, `string`
+- **Fixed arrays**: `int32[10] readings`, `float32[3] position` (compile-time allocation)
+- **Dynamic arrays**: `int32[] readings`, `string[] names` (runtime allocation)
+- **Constants**: `int32 SENSOR_TYPE_TEMP=1`, `float32 MAX_TEMP=100.0`
+- **Comments**: Lines starting with `#` document field meanings and units
+
+**Creating Custom Message Package:**
+
+```bash
+# Create message package (requires ament_cmake for generation)
+cd ~/ros2_ws/src
+ros2 pkg create --build-type ament_cmake custom_msgs
+cd custom_msgs
+mkdir msg
+```
+
+**Example SensorData.msg:**
+```
+# SensorData.msg - Environmental sensor readings
+float32 temperature    # Degrees Celsius
+float32 humidity       # Relative humidity (%)
+int64 timestamp        # Unix timestamp (nanoseconds)
+string sensor_id       # Sensor identifier
+bool is_valid          # Data validity flag
+```
+
+**Configure CMakeLists.txt** to enable message generation:
+```cmake
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/SensorData.msg"
+)
+```
+
+**Configure package.xml** with dependencies:
+```xml
+<build_depend>rosidl_default_generators</build_depend>
+<exec_depend>rosidl_default_runtime</exec_depend>
+<member_of_group>rosidl_interface_packages</member_of_group>
+```
+
+**Using Custom Messages in Nodes:**
+```python
+from custom_msgs.msg import SensorData
+
+# Publisher
+msg = SensorData()
+msg.temperature = 23.5
+msg.humidity = 65.2
+msg.timestamp = int(time.time() * 1e9)
+msg.sensor_id = 'DHT22_01'
+msg.is_valid = True
+self.publisher_.publish(msg)
+
+# Subscriber callback
+def sensor_callback(self, msg):
+    self.get_logger().info(
+        f'Temp: {msg.temperature}°C, Humidity: {msg.humidity}%')
+```
+
+**Best Practices:**
+1. Use descriptive field names (`temperature` not `val1`)
+2. Include units in comments (`# Degrees Celsius`)
+3. Add timestamps for sensor data (`int64 timestamp`)
+4. Use smallest sufficient type (`float32` for temp, `uint8` for counts)
+5. Verify generation: `ros2 interface show custom_msgs/msg/SensorData`
+
+**Build and Verify:**
+```bash
+cd ~/ros2_ws
+colcon build --packages-select custom_msgs
+source install/setup.bash
+ros2 interface show custom_msgs/msg/SensorData
+```
+
+**Quick Check:**
+- [ ] Can you explain when to use custom vs standard messages?
+- [ ] Can you write a .msg file with 5+ fields and proper types?
+- [ ] Can you configure CMakeLists.txt for message generation?
+- [ ] Can you use custom messages in publisher/subscriber nodes?
+
+**Prerequisites for Next Chapter:** Understanding of pub/sub patterns, ability to create custom messages, knowledge of when messages (async) vs services (sync) are appropriate.
+
+</TabItem>
+
+</Tabs>
