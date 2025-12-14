@@ -46,8 +46,17 @@ class ChatClient {
   private baseUrl: string;
 
   constructor(baseUrl: string = API_BASE_URL) {
-    // Remove trailing slash if present to avoid double slashes in URLs
-    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    // Normalize baseUrl: remove trailing slashes and ensure clean URL
+    this.baseUrl = baseUrl.replace(/\/+$/, '').trim();
+  }
+
+  /**
+   * Helper to build URLs without double slashes
+   */
+  private buildUrl(path: string): string {
+    // Ensure path starts with / and baseUrl doesn't end with /
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return `${this.baseUrl}${cleanPath}`;
   }
 
   /**
@@ -55,7 +64,7 @@ class ChatClient {
    */
   async createSession(userIdentifier?: string): Promise<SessionCreateResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/session`, {
+      const response = await fetch(this.buildUrl('/api/session'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -93,7 +102,7 @@ class ChatClient {
    */
   async sendQuery(request: ChatQueryRequest): Promise<ChatResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/chat`, {
+      const response = await fetch(this.buildUrl('/api/chat'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -139,7 +148,7 @@ class ChatClient {
    * Submit feedback for a response.
    */
   async submitFeedback(request: FeedbackRequest): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/feedback`, {
+    const response = await fetch(this.buildUrl('/api/feedback'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -160,7 +169,7 @@ class ChatClient {
    */
   async healthCheck(): Promise<{ status: string; version: string }> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/health`, {
+      const response = await fetch(this.buildUrl('/api/health'), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
