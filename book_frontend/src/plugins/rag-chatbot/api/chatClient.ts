@@ -4,7 +4,7 @@
  */
 
 const API_BASE_URL = process.env.NODE_ENV === 'production'
-  ? 'https://rag-chatbot-api-lr57.onrender.com'
+  ? 'https://chatbot-rag-krlg.onrender.com/'
   : 'http://localhost:8000';
 
 export interface ChatQueryRequest {
