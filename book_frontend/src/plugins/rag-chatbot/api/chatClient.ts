@@ -4,7 +4,7 @@
  */
 
 const API_BASE_URL = process.env.NODE_ENV === 'production'
-  ? 'https://chatbot-rag-krlg.onrender.com/'
+  ? 'https://chatbot-rag-krlg.onrender.com'
   : 'http://localhost:8000';
 
 export interface ChatQueryRequest {
@@ -46,52 +46,93 @@ class ChatClient {
   private baseUrl: string;
 
   constructor(baseUrl: string = API_BASE_URL) {
-    this.baseUrl = baseUrl;
+    // Remove trailing slash if present to avoid double slashes in URLs
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
   /**
    * Create a new chat session.
    */
   async createSession(userIdentifier?: string): Promise<SessionCreateResponse> {
-    const response = await fetch(`${this.baseUrl}/api/session`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ user_identifier: userIdentifier }),
-    });
+    try {
+      const response = await fetch(`${this.baseUrl}/api/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ user_identifier: userIdentifier }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`Failed to create session: ${response.statusText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = `Failed to create session: ${response.status} ${response.statusText}`;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.detail || errorMessage;
+        } catch {
+          if (errorText) errorMessage += ` - ${errorText}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      return response.json();
+    } catch (error) {
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error(
+          `Cannot connect to backend API at ${this.baseUrl}. ` +
+          `Please ensure the backend server is running. ` +
+          `Error: ${error.message}`
+        );
+      }
+      throw error;
     }
-
-    return response.json();
   }
 
   /**
    * Send a chat query and get response.
    */
   async sendQuery(request: ChatQueryRequest): Promise<ChatResponse> {
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(request),
-    });
+    try {
+      const response = await fetch(`${this.baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+        }
+        
+        const errorText = await response.text();
+        let errorMessage = `Failed to send query: ${response.status} ${response.statusText}`;
+        
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.detail || errorMessage;
+        } catch {
+          if (errorText) errorMessage += ` - ${errorText}`;
+        }
+        
+        if (response.status === 400) {
+          throw new Error(errorMessage);
+        }
+        throw new Error(errorMessage);
       }
-      if (response.status === 400) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Invalid request');
+
+      return response.json();
+    } catch (error) {
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error(
+          `Cannot connect to backend API at ${this.baseUrl}. ` +
+          `Please ensure the backend server is running on port 8000. ` +
+          `Error: ${error.message}`
+        );
       }
-      throw new Error(`Failed to send query: ${response.statusText}`);
+      throw error;
     }
-
-    return response.json();
   }
 
   /**
@@ -118,13 +159,29 @@ class ChatClient {
    * Check API health.
    */
   async healthCheck(): Promise<{ status: string; version: string }> {
-    const response = await fetch(`${this.baseUrl}/api/health`);
+    try {
+      const response = await fetch(`${this.baseUrl}/api/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
-    if (!response.ok) {
-      throw new Error('API health check failed');
+      if (!response.ok) {
+        throw new Error(`API health check failed: ${response.status} ${response.statusText}`);
+      }
+
+      return response.json();
+    } catch (error) {
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error(
+          `Cannot connect to backend API at ${this.baseUrl}. ` +
+          `Please ensure the backend server is running. ` +
+          `Error: ${error.message}`
+        );
+      }
+      throw error;
     }
-
-    return response.json();
   }
 }
 
